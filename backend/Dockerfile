@@ -1,9 +1,6 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 WORKDIR /app
-
-# build-essential (gcc + libc6-dev) needed to compile pydantic-core from source on ARM64
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
