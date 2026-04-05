@@ -1,22 +1,31 @@
 """
-FastAPI application — Guitar song CRUD + practice logging.
+FastAPI application — Guitar song CRUD + practice logging + agent chat.
 """
 from datetime import date, datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
 import duckdb
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from backend.db.schema import DB_PATH
+from backend.db.schema import DB_PATH, create_schema
 
-app = FastAPI(title="Tastemaker API", version="0.2.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_schema()
+    yield
+
+
+app = FastAPI(title="Tastemaker API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://100.116.200.117:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -189,3 +198,46 @@ def get_practice_log(song_id: str):
     ).fetchall()
     conn.close()
     return [{"log_id": r[0], "practiced_at": r[1]} for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Agent
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    message: str
+    thread_id: str = "default"
+
+
+@app.post("/agent/chat")
+async def agent_chat(body: ChatRequest):
+    from backend.agent.graph import get_agent
+
+    agent = get_agent()
+    config = {"configurable": {"thread_id": body.thread_id}}
+
+    async def stream():
+        async for event in agent.astream_events(
+            {"messages": [{"role": "user", "content": body.message}]},
+            config=config,
+            version="v2",
+        ):
+            kind = event["event"]
+            # Stream text tokens as they arrive
+            if kind == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                if chunk.content and isinstance(chunk.content, list):
+                    for part in chunk.content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            yield f"data: {part['text']}\n\n"
+                elif isinstance(chunk.content, str) and chunk.content:
+                    yield f"data: {chunk.content}\n\n"
+            # Signal tool calls so the UI can show "Querying database..."
+            elif kind == "on_tool_start":
+                tool_name = event.get("name", "tool")
+                yield f"event: tool_start\ndata: {tool_name}\n\n"
+            elif kind == "on_tool_end":
+                yield f"event: tool_end\ndata: done\n\n"
+        yield "event: done\ndata: done\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
