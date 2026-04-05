@@ -1,0 +1,39 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: main
+    tables:
+      - name: raw_scrobbles
+        description: "Raw Last.fm scrobble history"
+        columns:
+          - name: track
+            tests: [not_null]
+          - name: artist
+            tests: [not_null]
+          - name: scrobbled_at
+            tests: [not_null]
+
+      - name: raw_books
+        description: "Raw Goodreads library export + OpenLibrary enrichment"
+        columns:
+          - name: book_id
+            tests: [not_null, unique]
+          - name: title
+            tests: [not_null]
+
+      - name: guitar_songs
+        description: "Guitar song log — written directly by the React app"
+        columns:
+          - name: song_id
+            tests: [not_null, unique]
+          - name: title
+            tests: [not_null]
+          - name: difficulty
+            tests:
+              - accepted_values:
+                  values: [1, 2, 3, 4, 5]
+          - name: status
+            tests:
+              - accepted_values:
+                  values: ['want_to_learn', 'learning', 'learned', 'abandoned']

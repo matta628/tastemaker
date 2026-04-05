@@ -1,0 +1,14 @@
+venv/
+.env.secret
+*.db
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+data/
+node_modules/
+frontend/build/
+logs/
+.dbt/
+target/
+dbt_packages/

@@ -1,0 +1,7 @@
+tastemaker:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../tastemaker.db
+      threads: 4
