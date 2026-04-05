@@ -1,0 +1,25 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # DB file persists on the Pi's disk, not inside the container
+      - ./tastemaker.db:/app/tastemaker.db
+      # Secrets mounted at runtime — never baked into the image
+      - ./.env.secret:/app/.env.secret:ro
+    env_file:
+      - .env
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
