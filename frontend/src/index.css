@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 body {
   margin: 0;
@@ -9,7 +10,8 @@ body {
 }
 
 #root {
-  min-height: 100svh;
+  height: 100svh;
+  overflow: hidden;
 }
 
 @keyframes row-highlight {

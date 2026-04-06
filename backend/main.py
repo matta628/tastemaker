@@ -5,12 +5,18 @@ from datetime import date, datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
+import os
 import duckdb
+import requests
+from bs4 import BeautifulSoup
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+load_dotenv(".env.secret")
 
 from backend.db.schema import DB_PATH, create_schema
 
@@ -217,6 +223,98 @@ def top_artists(days: int = 30, limit: int = 10):
     """, [days, limit]).fetchall()
     conn.close()
     return [{"artist": r[0], "plays": r[1]} for r in rows]
+
+
+@app.get("/taste/top-tracks")
+def top_tracks(days: int = 30, limit: int = 20):
+    conn = db()
+    rows = conn.execute("""
+        SELECT track, artist, COUNT(*) as plays
+        FROM raw_scrobbles
+        WHERE scrobbled_at >= now() - INTERVAL (? || ' days')
+        GROUP BY track, artist
+        ORDER BY plays DESC
+        LIMIT ?
+    """, [days, limit]).fetchall()
+    conn.close()
+    return [{"track": r[0], "artist": r[1], "plays": r[2]} for r in rows]
+
+
+def _genius_snippet(track: str, artist: str, token: str) -> str | None:
+    """Search Genius for a track and return a short lyric snippet."""
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        q = f"{track} {artist}"
+        res = requests.get(
+            "https://api.genius.com/search",
+            headers=headers,
+            params={"q": q},
+            timeout=5,
+        )
+        hits = res.json().get("response", {}).get("hits", [])
+        if not hits:
+            return None
+        url = hits[0]["result"]["url"]
+
+        page = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(page.text, "html.parser")
+
+        # Genius wraps lyrics in containers with data-lyrics-container attribute
+        containers = soup.find_all("div", attrs={"data-lyrics-container": "true"})
+        lines = []
+        for container in containers:
+            for br in container.find_all("br"):
+                br.replace_with("\n")
+            text = container.get_text("\n")
+            for line in text.splitlines():
+                line = line.strip()
+                # skip section headers like [Verse 1], blank lines
+                if line and not line.startswith("["):
+                    lines.append(line)
+            if len(lines) >= 4:
+                break
+
+        if not lines:
+            return None
+        # Pick 2-3 consecutive lines from the middle for variety
+        start = max(0, len(lines) // 3)
+        snippet_lines = lines[start:start + 3]
+        return " / ".join(snippet_lines)
+    except Exception:
+        return None
+
+
+@app.get("/taste/lyrics-snippets")
+def lyrics_snippets(days: int = 30, limit: int = 15):
+    token = os.environ.get("GENIUS_ACCESS_TOKEN")
+    if not token:
+        return []
+
+    conn = db()
+    rows = conn.execute("""
+        SELECT track, artist, COUNT(*) as plays
+        FROM raw_scrobbles
+        WHERE scrobbled_at >= now() - INTERVAL (? || ' days')
+        GROUP BY track, artist
+        ORDER BY plays DESC
+        LIMIT ?
+    """, [days, limit]).fetchall()
+    conn.close()
+
+    results = []
+    for track, artist, plays in rows:
+        snippet = _genius_snippet(track, artist, token)
+        if snippet:
+            results.append({
+                "track": track,
+                "artist": artist,
+                "plays": plays,
+                "snippet": snippet,
+            })
+        if len(results) >= 8:
+            break
+
+    return results
 
 
 # ---------------------------------------------------------------------------

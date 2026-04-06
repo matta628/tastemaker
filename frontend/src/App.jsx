@@ -92,10 +92,10 @@ export default function App() {
   const goTo = (t) => { setTab(t); setEditingSong(null) }
 
   return (
-    <div className="min-h-svh bg-zinc-950 flex flex-col md:flex-row">
+    <div className="h-svh overflow-hidden bg-zinc-950 flex flex-col md:flex-row">
 
       {/* ── Sidebar (desktop only) ── */}
-      <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-zinc-800 min-h-screen sticky top-0">
+      <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-zinc-800 h-full">
         <div className="px-5 py-6 border-b border-zinc-800">
           <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">🎸 Tastemaker</h1>
           <p className="text-xs text-zinc-500 mt-0.5">guitar log</p>
@@ -122,7 +122,7 @@ export default function App() {
       </aside>
 
       {/* ── Main ── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Mobile header + tabs */}
         <div className="md:hidden">
@@ -163,7 +163,7 @@ export default function App() {
         </div>
 
         {/* Content */}
-        <main className="flex-1 px-4 md:px-8 py-5">
+        <main className={`flex-1 overflow-hidden ${activeTab !== 'Chat' ? 'overflow-y-auto px-4 md:px-8 py-5' : 'px-4 md:px-8'}`}>
           {error && (
             <div className="bg-red-950 border border-red-800 text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
               {error}
