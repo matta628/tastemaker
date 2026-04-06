@@ -8,6 +8,7 @@ import { AgentChat } from './components/AgentChat'
 import { LyricsTape } from './components/LyricsTape'
 import { Vibes } from './components/Vibes'
 import { useLyrics } from './components/useLyrics'
+import { SyncButton } from './components/SyncButton'
 import './index.css'
 
 const NAV = [
@@ -124,8 +125,9 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="px-5 py-4 border-t border-zinc-800">
+        <div className="px-5 py-4 border-t border-zinc-800 flex flex-col gap-2">
           <p className="text-xs text-zinc-600">{songs.length} entries</p>
+          <SyncButton />
         </div>
       </aside>
 

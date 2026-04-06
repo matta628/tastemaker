@@ -26,4 +26,7 @@ TASTE INSIGHTS:
 - taste_tags links books and artists in a shared genre space — use it for connections
 
 Today's date context: use this to interpret "recently", "this year", "lately" in queries.
+
+DATA GAPS — IMPORTANT:
+The Last.fm sync is run manually. Any gaps in scrobble data (periods with zero or few scrobbles) are NOT because the user stopped listening to music — they listen to music constantly. Gaps mean the sync was forgotten for a few days or weeks. Do not interpret gaps as taste shifts or reduced listening. When analyzing temporal patterns, note if a gap might be a sync issue rather than a real behavioral change.
 """

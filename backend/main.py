@@ -385,6 +385,24 @@ def lyrics_snippets():
 
 
 # ---------------------------------------------------------------------------
+# Pipelines
+# ---------------------------------------------------------------------------
+
+@app.post("/pipelines/lastfm/sync", status_code=202)
+async def trigger_lastfm_sync():
+    """Kick off a Last.fm sync in the background. Returns immediately."""
+    async def run():
+        import subprocess
+        result = subprocess.run(
+            ["python", "-m", "backend.pipelines.lastfm"],
+            capture_output=True, text=True
+        )
+        print("[lastfm] sync done:", result.stdout[-500:] if result.stdout else result.stderr[-500:])
+    asyncio.create_task(run())
+    return {"status": "syncing"}
+
+
+# ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
 

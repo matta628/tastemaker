@@ -6,7 +6,7 @@ export function LyricsTape({ tracks }) {
   // Build tape items — prefer snippet, fall back to track title
   const items = tracks.map(t =>
     t.snippet
-      ? `"${t.snippet}" — ${t.track} · ${t.artist}`
+      ? `… ${t.snippet.replace(/\n\s*/g, ' / ')} … — ${t.track} · ${t.artist}`
       : `${t.track} · ${t.artist}`
   )
 

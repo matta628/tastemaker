@@ -5,8 +5,21 @@ import { useLyrics } from './useLyrics'
 
 const THREAD_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
 
+function SnippetLines({ snippet }) {
+  const lines = snippet.split('\n').map(l => l.trim()).filter(Boolean)
+  return (
+    <p className="text-zinc-200 text-sm italic leading-relaxed text-center">
+      <span className="text-zinc-500">… </span>
+      {lines.map((line, i) => (
+        <span key={i}>{i > 0 && <br />}{line}</span>
+      ))}
+      <span className="text-zinc-500"> …</span>
+    </p>
+  )
+}
+
 export function TrackLoader({ tracks }) {
-  const [idx, setIdx] = useState(0)
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * Math.max(tracks.length, 1)))
   const [visible, setVisible] = useState(true)
 
   useEffect(() => {
@@ -14,7 +27,11 @@ export function TrackLoader({ tracks }) {
     const cycle = () => {
       setVisible(false)
       setTimeout(() => {
-        setIdx(i => (i + 1) % tracks.length)
+        setIdx(i => {
+          let next = Math.floor(Math.random() * tracks.length)
+          if (next === i) next = (next + 1) % tracks.length
+          return next
+        })
         setVisible(true)
       }, 500)
     }
@@ -22,7 +39,7 @@ export function TrackLoader({ tracks }) {
     return () => clearInterval(timer)
   }, [tracks.length])
 
-  const item = tracks[idx] ?? null
+  const item = tracks[idx % Math.max(tracks.length, 1)] ?? null
 
   return (
     <div className="flex flex-col items-center justify-center py-8 px-6 gap-4 text-center min-w-[220px]">
@@ -42,7 +59,7 @@ export function TrackLoader({ tracks }) {
         {item ? (
           item.snippet ? (
             <>
-              <p className="text-zinc-200 text-sm italic leading-snug">"{item.snippet}"</p>
+              <SnippetLines snippet={item.snippet} />
               <p className="text-zinc-500 text-xs mt-1">{item.track} · {item.artist}</p>
             </>
           ) : (
@@ -111,6 +128,11 @@ export function AgentChat() {
         body: JSON.stringify({ message: text, thread_id: THREAD_ID }),
       })
 
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText)
+        throw new Error(`${res.status}: ${err}`)
+      }
+
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let rawBuffer = ''
@@ -133,8 +155,8 @@ export function AgentChat() {
           }
         }
       }
-    } catch {
-      bufferRef.current = 'Error: could not reach the agent.'
+    } catch (e) {
+      bufferRef.current = `Error: ${e.message || 'could not reach the agent.'}`
     } finally {
       const finalContent = bufferRef.current || 'No response.'
       setMessages(prev => {
