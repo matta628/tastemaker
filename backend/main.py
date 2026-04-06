@@ -9,9 +9,9 @@ import asyncio
 import json
 import os
 import time
+import urllib.parse
 import duckdb
 import requests
-from bs4 import BeautifulSoup
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -248,10 +248,12 @@ def top_tracks(days: int = 30, limit: int = 20):
     return [{"track": r[0], "artist": r[1], "plays": r[2]} for r in rows]
 
 
-def _genius_snippet(track: str, artist: str, token: str) -> str | None:
-    """Search Genius for a track and scrape a short lyric snippet."""
+def _genius_top_fragment(track: str, artist: str, token: str) -> str | None:
+    """Get the most-upvoted annotated lyric fragment for a song via Genius API."""
     try:
         headers = {"Authorization": f"Bearer {token}"}
+
+        # Step 1: search for the song to get its ID
         res = requests.get(
             "https://api.genius.com/search",
             headers=headers,
@@ -261,49 +263,88 @@ def _genius_snippet(track: str, artist: str, token: str) -> str | None:
         hits = res.json().get("response", {}).get("hits", [])
         if not hits:
             return None
-        url = hits[0]["result"]["url"]
+        song_id = hits[0]["result"]["id"]
 
-        page = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(page.text, "html.parser")
-
-        containers = soup.find_all("div", attrs={"data-lyrics-container": "true"})
-        lines = []
-        for container in containers:
-            for br in container.find_all("br"):
-                br.replace_with("\n")
-            for line in container.get_text("\n").splitlines():
-                line = line.strip()
-                if line and not line.startswith("["):
-                    lines.append(line)
-            if len(lines) >= 6:
-                break
-
-        if len(lines) < 2:
+        # Step 2: get all annotated fragments for the song
+        res = requests.get(
+            "https://api.genius.com/referents",
+            headers=headers,
+            params={"song_id": song_id, "text_format": "plain", "per_page": 50},
+            timeout=5,
+        )
+        referents = res.json().get("response", {}).get("referents", [])
+        if not referents:
             return None
 
+        # Score each fragment by its top annotation's vote count
+        candidates = []
+        for ref in referents:
+            fragment = ref.get("fragment", "").strip()
+            annotations = ref.get("annotations", [])
+            if not fragment or not annotations:
+                continue
+            votes = max(a.get("votes_total", 0) for a in annotations)
+            word_count = len(fragment.split())
+            char_count = len(fragment)
+            # Skip non-lyric fragments: too short/long, ratings (x/10), or URLs
+            if not (3 <= word_count <= 30 and char_count <= 200):
+                continue
+            if any(x in fragment for x in ["http", "/10", "/5", "10/10", "@"]):
+                continue
+            candidates.append((votes, fragment))
+
+        if not candidates:
+            return None
+
+        # Return the fragment with the most upvoted annotation
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    except Exception:
+        return None
+
+
+def _lyrics_ovh_snippet(track: str, artist: str) -> str | None:
+    """Fallback: fetch a lyric snippet from lyrics.ovh (free, no key needed)."""
+    try:
+        res = requests.get(
+            f"https://api.lyrics.ovh/v1/{urllib.parse.quote(artist)}/{urllib.parse.quote(track)}",
+            timeout=8,
+        )
+        if res.status_code != 200:
+            return None
+        lyrics = res.json().get("lyrics", "")
+        lines = [l.strip() for l in lyrics.splitlines() if l.strip()]
+        if len(lines) < 2:
+            return None
         start = max(0, len(lines) // 3)
         return " / ".join(lines[start:start + 3])
     except Exception:
         return None
 
 
-async def _lyrics_background_fetch():
-    """On startup: fetch Genius snippets for top 100 tracks (30 months), cache to disk.
-    Skips if cache is fresh. Rate-limited to ~1 search+scrape per 2 seconds."""
+def _lyrics_snippet(track: str, artist: str) -> str | None:
+    """Try Genius top-annotated fragment first, fall back to lyrics.ovh."""
     token = os.environ.get("GENIUS_ACCESS_TOKEN")
-    if not token:
-        print("[lyrics] No GENIUS_ACCESS_TOKEN found — skipping lyrics fetch")
-        return
+    if token:
+        fragment = _genius_top_fragment(track, artist, token)
+        if fragment:
+            return fragment
+    return _lyrics_ovh_snippet(track, artist)
 
-    if LYRICS_CACHE.exists():
+
+async def _lyrics_background_fetch():
+    """On startup: fetch lyric snippets for top 100 tracks (30 months) via lyrics.ovh, cache to disk.
+    Skips if cache is fresh. Rate-limited to 1 request per second."""
+    if LYRICS_CACHE.exists() and LYRICS_CACHE.stat().st_size > 10:
         age_days = (time.time() - LYRICS_CACHE.stat().st_mtime) / 86400
         if age_days < LYRICS_CACHE_MAX_AGE_DAYS:
             cached = json.loads(LYRICS_CACHE.read_text())
-            print(f"[lyrics] Cache is fresh ({age_days:.1f} days old, {len(cached)} tracks) — skipping fetch")
+            print(f"[lyrics] Cache fresh ({age_days:.1f}d old, {len(cached)} tracks) — skipping")
             return
 
     await asyncio.sleep(5)
-    print("[lyrics] Starting Genius lyrics fetch for top 100 tracks (30 months)…")
+    print("[lyrics] Starting lyrics fetch for top 100 tracks (30 months)…")
 
     try:
         conn = duckdb.connect(str(DB_PATH), read_only=True)
@@ -316,23 +357,23 @@ async def _lyrics_background_fetch():
             LIMIT 100
         """).fetchall()
         conn.close()
-        print(f"[lyrics] Got {len(rows)} tracks to look up")
+        print(f"[lyrics] {len(rows)} tracks to look up")
     except Exception as e:
         print(f"[lyrics] DB query failed: {e}")
         return
 
     results = []
     for i, (track, artist, plays) in enumerate(rows):
-        snippet = await asyncio.to_thread(_genius_snippet, track, artist, token)
+        snippet = await asyncio.to_thread(_lyrics_snippet, track, artist)
         if snippet:
             results.append({"track": track, "artist": artist, "plays": plays, "snippet": snippet})
             print(f"[lyrics] ({i+1}/{len(rows)}) ✓ {artist} — {track}")
         else:
-            print(f"[lyrics] ({i+1}/{len(rows)}) ✗ {artist} — {track} (not found)")
-        await asyncio.sleep(2)
+            print(f"[lyrics] ({i+1}/{len(rows)}) ✗ {artist} — {track}")
+        await asyncio.sleep(1)
 
     LYRICS_CACHE.write_text(json.dumps(results))
-    print(f"[lyrics] Done — {len(results)}/{len(rows)} tracks with snippets cached")
+    print(f"[lyrics] Done — {len(results)}/{len(rows)} with snippets")
 
 
 @app.get("/taste/lyrics-snippets")
