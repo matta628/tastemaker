@@ -201,6 +201,25 @@ def get_practice_log(song_id: str):
 
 
 # ---------------------------------------------------------------------------
+# Taste
+# ---------------------------------------------------------------------------
+
+@app.get("/taste/top-artists")
+def top_artists(days: int = 30, limit: int = 10):
+    conn = db()
+    rows = conn.execute("""
+        SELECT artist, COUNT(*) as plays
+        FROM raw_scrobbles
+        WHERE scrobbled_at >= now() - INTERVAL (? || ' days')
+        GROUP BY artist
+        ORDER BY plays DESC
+        LIMIT ?
+    """, [days, limit]).fetchall()
+    conn.close()
+    return [{"artist": r[0], "plays": r[1]} for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
 

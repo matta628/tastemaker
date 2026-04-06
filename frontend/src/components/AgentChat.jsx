@@ -4,8 +4,106 @@ import remarkGfm from 'remark-gfm'
 
 const THREAD_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
 
+// Keyed by lowercase artist name — add more as needed
+const LYRICS_BY_ARTIST = {
+  'elliott smith': [
+    { text: "I'm never gonna know you now, but I'm gonna love you anyhow", credit: "Elliott Smith — Waltz #2 (XO)" },
+    { text: "Drink up baby, stay up all night with the things you could do", credit: "Elliott Smith — Between the Bars" },
+    { text: "I'm never gonna know you now, but I'm gonna love you anyhow", credit: "Elliott Smith — Waltz #2 (XO)" },
+    { text: "Got a long way to go for someone moving fast", credit: "Elliott Smith — Speed Trials" },
+    { text: "I could make you satisfied in everything you do", credit: "Elliott Smith — Say Yes" },
+  ],
+  'the strokes': [
+    { text: "Life is simple in the moonlight", credit: "The Strokes — Life Is Simple in the Moonlight" },
+    { text: "Take it or leave it", credit: "The Strokes — Take It or Leave It" },
+    { text: "I want to be forgotten, and I don't want to be reminded", credit: "The Strokes — Someday" },
+    { text: "You said it changed your life, but you couldn't say why", credit: "The Strokes — Under Cover of Darkness" },
+  ],
+  'the voidz': [
+    { text: "All this machinery making modern music", credit: "The Voidz — Leave It in My Heart" },
+    { text: "We'll never get back those feelings we had", credit: "The Voidz — Pyramid of Bones" },
+  ],
+  'lana del rey': [
+    { text: "Will you still love me when I'm no longer young and beautiful?", credit: "Lana Del Rey — Young and Beautiful" },
+    { text: "I was always an unusual girl, my mother told me I had a chameleon soul", credit: "Lana Del Rey — Ride" },
+    { text: "Who are you? Are you in touch with all of your darkest fantasies?", credit: "Lana Del Rey — Ride" },
+  ],
+  'arctic monkeys': [
+    { text: "Do I wanna know, if this feeling flows both ways?", credit: "Arctic Monkeys — Do I Wanna Know?" },
+    { text: "I bet that you look good on the dancefloor", credit: "Arctic Monkeys — I Bet You Look Good on the Dancefloor" },
+    { text: "Mardy bum, now I'm sitting here, can't work you out", credit: "Arctic Monkeys — Mardy Bum" },
+  ],
+  'baustelle': [
+    { text: "Sono venuto a capo di tutto, e non c'è niente", credit: "Baustelle — Niente" },
+    { text: "L'amore non esiste, è solo un altro modo per morire", credit: "Baustelle — La morte non ha età" },
+    { text: "Siamo soli, siamo soli nel mondo", credit: "Baustelle — Colombo" },
+  ],
+  'keyshia cole': [
+    { text: "I want you to know that I love you so, always", credit: "Keyshia Cole — Love" },
+    { text: "Let it go, let it go, I should've let you go", credit: "Keyshia Cole — Let It Go" },
+  ],
+  'deftones': [
+    { text: "We can bathe in the water... while the morning comes", credit: "Deftones — Sextape" },
+    { text: "I'll try, I'll try... be with you", credit: "Deftones — Be Quiet and Drive" },
+  ],
+  'wednesday': [
+    { text: "I'm not gonna die in this county", credit: "Wednesday — Bull Believer" },
+    { text: "I just want to feel something, anything at all", credit: "Wednesday — Chosen to Deserve" },
+  ],
+  'michael jackson': [
+    { text: "You are not alone, I am here with you", credit: "Michael Jackson — You Are Not Alone" },
+    { text: "Billie Jean is not my lover", credit: "Michael Jackson — Billie Jean" },
+  ],
+}
+
+const FALLBACK_LYRICS = [
+  { text: "I'm never gonna know you now, but I'm gonna love you anyhow", credit: "Elliott Smith — Waltz #2 (XO)" },
+  { text: "Life is simple in the moonlight", credit: "The Strokes — Life Is Simple in the Moonlight" },
+]
+
+function LyricsLoader({ lyrics }) {
+  const pool = lyrics?.length ? lyrics : FALLBACK_LYRICS
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * pool.length))
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    const cycle = () => {
+      setVisible(false)
+      setTimeout(() => {
+        setIdx(i => (i + 1) % pool.length)
+        setVisible(true)
+      }, 600)
+    }
+    const timer = setInterval(cycle, 6000)
+    return () => clearInterval(timer)
+  }, [pool.length])
+
+  const { text, credit } = pool[idx % pool.length]
+
+  return (
+    <div className="flex flex-col items-center justify-center py-8 px-6 gap-4 text-center">
+      <div className="flex gap-1 mb-2">
+        {[0, 1, 2, 3, 4].map(i => (
+          <div
+            key={i}
+            className="w-0.5 bg-violet-500 rounded-full animate-bounce"
+            style={{ height: '20px', animationDelay: `${i * 0.1}s`, animationDuration: '0.8s' }}
+          />
+        ))}
+      </div>
+      <div
+        className="transition-opacity duration-500"
+        style={{ opacity: visible ? 1 : 0 }}
+      >
+        <p className="text-zinc-200 text-base italic leading-relaxed">"{text}"</p>
+        <p className="text-zinc-500 text-xs mt-2">— {credit}</p>
+      </div>
+      <p className="text-zinc-600 text-xs mt-2 animate-pulse">thinking about your taste…</p>
+    </div>
+  )
+}
+
 function parseSSEChunk(chunk) {
-  // Parse a raw SSE chunk into { event, data } pairs
   const events = []
   const blocks = chunk.split(/\n\n+/)
   for (const block of blocks) {
@@ -26,9 +124,25 @@ export function AgentChat() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
-  const [querying, setQuerying] = useState(false)
+  const [lyrics, setLyrics] = useState([])
+  const bufferRef = useRef('')
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+
+  useEffect(() => {
+    fetch('/api/taste/top-artists?days=30&limit=10')
+      .then(r => r.json())
+      .then(artists => {
+        const pool = []
+        for (const { artist } of artists) {
+          const key = artist.toLowerCase()
+          const matches = Object.entries(LYRICS_BY_ARTIST).find(([k]) => key.includes(k) || k.includes(key))
+          if (matches) pool.push(...matches[1])
+        }
+        if (pool.length >= 3) setLyrics(pool)
+      })
+      .catch(() => {}) // silently fall back to hardcoded
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -40,11 +154,11 @@ export function AgentChat() {
 
     setInput('')
     setStreaming(true)
-    setQuerying(false)
+    bufferRef.current = ''
 
     const userMsg = { role: 'user', content: text }
-    const assistantMsg = { role: 'assistant', content: '' }
-    setMessages(prev => [...prev, userMsg, assistantMsg])
+    // assistant placeholder — content null means "still thinking"
+    setMessages(prev => [...prev, userMsg, { role: 'assistant', content: null }])
 
     try {
       const res = await fetch('/api/agent/chat', {
@@ -55,49 +169,39 @@ export function AgentChat() {
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
-      let buffer = ''
+      let rawBuffer = ''
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        buffer += decoder.decode(value, { stream: true })
+        rawBuffer += decoder.decode(value, { stream: true })
 
-        // Process complete SSE blocks (separated by double newline)
-        const parts = buffer.split(/\n\n(?=(?:event:|data:))/)
-        buffer = parts.pop() ?? ''
+        const parts = rawBuffer.split(/\n\n(?=(?:event:|data:))/)
+        rawBuffer = parts.pop() ?? ''
 
         for (const part of parts) {
           const parsed = parseSSEChunk(part + '\n\n')
           for (const { event, data } of parsed) {
-            if (event === 'tool_start') {
-              setQuerying(true)
-            } else if (event === 'tool_end') {
-              setQuerying(false)
+            if (event === 'message' || event === 'message\r') {
+              bufferRef.current += data
             } else if (event === 'done') {
-              // stream finished
-            } else {
-              // default: text token
-              setMessages(prev => {
-                const msgs = [...prev]
-                msgs[msgs.length - 1] = {
-                  ...msgs[msgs.length - 1],
-                  content: msgs[msgs.length - 1].content + data,
-                }
-                return msgs
-              })
+              // handled below
             }
+            // tool_start / tool_end — lyrics loader handles the visual
           }
         }
       }
     } catch (e) {
+      bufferRef.current = 'Error: could not reach the agent.'
+    } finally {
+      const finalContent = bufferRef.current || 'No response.'
       setMessages(prev => {
         const msgs = [...prev]
-        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: 'Error: could not reach the agent.' }
+        msgs[msgs.length - 1] = { role: 'assistant', content: finalContent }
         return msgs
       })
-    } finally {
       setStreaming(false)
-      setQuerying(false)
+      bufferRef.current = ''
       inputRef.current?.focus()
     }
   }
@@ -143,21 +247,20 @@ export function AgentChat() {
                 : 'bg-zinc-800 text-zinc-100 rounded-bl-sm'
             }`}>
               {msg.role === 'assistant' ? (
-                <div className="prose prose-invert prose-sm max-w-none
-                  prose-table:text-xs prose-table:border prose-table:border-zinc-700
-                  prose-th:bg-zinc-700 prose-th:px-2 prose-th:py-1
-                  prose-td:px-2 prose-td:py-1 prose-td:border-zinc-700
-                  prose-code:text-violet-300 prose-pre:bg-zinc-900">
-                  {msg.content ? (
+                msg.content === null ? (
+                  <LyricsLoader lyrics={lyrics} />
+                ) : (
+                  <div className="prose prose-invert prose-sm max-w-none
+                    prose-table:text-xs prose-table:border-collapse
+                    prose-th:bg-zinc-700 prose-th:px-2 prose-th:py-1 prose-th:text-left
+                    prose-td:px-2 prose-td:py-1 prose-td:border prose-td:border-zinc-700
+                    prose-code:text-violet-300 prose-pre:bg-zinc-900
+                    prose-headings:text-zinc-100 prose-strong:text-zinc-100">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {msg.content}
                     </ReactMarkdown>
-                  ) : (
-                    <span className="text-zinc-500 animate-pulse">
-                      {querying ? 'Querying your data…' : '…'}
-                    </span>
-                  )}
-                </div>
+                  </div>
+                )
               ) : (
                 msg.content
               )}
