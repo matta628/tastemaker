@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-const THREAD_ID = crypto.randomUUID()
+const THREAD_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
 
 function parseSSEChunk(chunk) {
   // Parse a raw SSE chunk into { event, data } pairs
