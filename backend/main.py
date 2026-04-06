@@ -5,7 +5,10 @@ from datetime import date, datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
+import asyncio
+import json
 import os
+import time
 import duckdb
 import requests
 from bs4 import BeautifulSoup
@@ -13,10 +16,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pathlib import Path
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv(".env.secret")
+
+LYRICS_CACHE = Path("lyrics_cache.json")
+LYRICS_CACHE_MAX_AGE_DAYS = 7
 
 from backend.db.schema import DB_PATH, create_schema
 
@@ -24,6 +31,7 @@ from backend.db.schema import DB_PATH, create_schema
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_schema()
+    asyncio.create_task(_lyrics_background_fetch())
     yield
 
 
@@ -241,14 +249,13 @@ def top_tracks(days: int = 30, limit: int = 20):
 
 
 def _genius_snippet(track: str, artist: str, token: str) -> str | None:
-    """Search Genius for a track and return a short lyric snippet."""
+    """Search Genius for a track and scrape a short lyric snippet."""
     try:
         headers = {"Authorization": f"Bearer {token}"}
-        q = f"{track} {artist}"
         res = requests.get(
             "https://api.genius.com/search",
             headers=headers,
-            params={"q": q},
+            params={"q": f"{track} {artist}"},
             timeout=5,
         )
         hits = res.json().get("response", {}).get("hits", [])
@@ -259,62 +266,73 @@ def _genius_snippet(track: str, artist: str, token: str) -> str | None:
         page = requests.get(url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(page.text, "html.parser")
 
-        # Genius wraps lyrics in containers with data-lyrics-container attribute
         containers = soup.find_all("div", attrs={"data-lyrics-container": "true"})
         lines = []
         for container in containers:
             for br in container.find_all("br"):
                 br.replace_with("\n")
-            text = container.get_text("\n")
-            for line in text.splitlines():
+            for line in container.get_text("\n").splitlines():
                 line = line.strip()
-                # skip section headers like [Verse 1], blank lines
                 if line and not line.startswith("["):
                     lines.append(line)
-            if len(lines) >= 4:
+            if len(lines) >= 6:
                 break
 
-        if not lines:
+        if len(lines) < 2:
             return None
-        # Pick 2-3 consecutive lines from the middle for variety
+
         start = max(0, len(lines) // 3)
-        snippet_lines = lines[start:start + 3]
-        return " / ".join(snippet_lines)
+        return " / ".join(lines[start:start + 3])
     except Exception:
         return None
 
 
-@app.get("/taste/lyrics-snippets")
-def lyrics_snippets(days: int = 30, limit: int = 15):
+async def _lyrics_background_fetch():
+    """On startup: fetch Genius snippets for top 100 tracks (30 months), cache to disk.
+    Skips if cache is fresh. Rate-limited to ~1 search+scrape per 2 seconds."""
     token = os.environ.get("GENIUS_ACCESS_TOKEN")
     if not token:
-        return []
+        return
 
-    conn = db()
-    rows = conn.execute("""
-        SELECT track, artist, COUNT(*) as plays
-        FROM raw_scrobbles
-        WHERE scrobbled_at >= now() - INTERVAL (? || ' days')
-        GROUP BY track, artist
-        ORDER BY plays DESC
-        LIMIT ?
-    """, [days, limit]).fetchall()
-    conn.close()
+    # Check cache freshness
+    if LYRICS_CACHE.exists():
+        age_days = (time.time() - LYRICS_CACHE.stat().st_mtime) / 86400
+        if age_days < LYRICS_CACHE_MAX_AGE_DAYS:
+            return  # cache is fresh, nothing to do
+
+    await asyncio.sleep(5)  # let server finish starting up
+
+    try:
+        conn = duckdb.connect(str(DB_PATH), read_only=True)
+        rows = conn.execute("""
+            SELECT track, artist, COUNT(*) as plays
+            FROM raw_scrobbles
+            WHERE scrobbled_at >= now() - INTERVAL '30 months'
+            GROUP BY track, artist
+            ORDER BY plays DESC
+            LIMIT 100
+        """).fetchall()
+        conn.close()
+    except Exception:
+        return
 
     results = []
     for track, artist, plays in rows:
-        snippet = _genius_snippet(track, artist, token)
+        snippet = await asyncio.to_thread(_genius_snippet, track, artist, token)
         if snippet:
-            results.append({
-                "track": track,
-                "artist": artist,
-                "plays": plays,
-                "snippet": snippet,
-            })
-        if len(results) >= 8:
-            break
+            results.append({"track": track, "artist": artist, "plays": plays, "snippet": snippet})
+        await asyncio.sleep(2)  # 1 search + 1 scrape per track, ~2s gap = safe rate
 
-    return results
+    if results:
+        LYRICS_CACHE.write_text(json.dumps(results))
+
+
+@app.get("/taste/lyrics-snippets")
+def lyrics_snippets():
+    """Return cached Genius lyric snippets. Cache is populated in background on startup."""
+    if LYRICS_CACHE.exists():
+        return json.loads(LYRICS_CACHE.read_text())
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -343,12 +361,17 @@ async def agent_chat(body: ChatRequest):
             # Stream text tokens as they arrive
             if kind == "on_chat_model_stream":
                 chunk = event["data"]["chunk"]
+                text = None
                 if chunk.content and isinstance(chunk.content, list):
                     for part in chunk.content:
                         if isinstance(part, dict) and part.get("type") == "text":
-                            yield f"data: {part['text']}\n\n"
+                            text = part["text"]
                 elif isinstance(chunk.content, str) and chunk.content:
-                    yield f"data: {chunk.content}\n\n"
+                    text = chunk.content
+                if text:
+                    # SSE spec: newlines in data must be split into multiple data: lines
+                    encoded = "\n".join(f"data: {line}" for line in text.split("\n"))
+                    yield f"{encoded}\n\n"
             # Signal tool calls so the UI can show "Querying database..."
             elif kind == "on_tool_start":
                 tool_name = event.get("name", "tool")

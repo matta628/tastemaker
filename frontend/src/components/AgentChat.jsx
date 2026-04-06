@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useLyrics } from './useLyrics'
 
 const THREAD_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
 
-function TrackLoader({ tracks }) {
+export function TrackLoader({ tracks }) {
   const [idx, setIdx] = useState(0)
   const [visible, setVisible] = useState(true)
 
@@ -34,8 +35,10 @@ function TrackLoader({ tracks }) {
           />
         ))}
       </div>
-      <div className="transition-opacity duration-500 min-h-[4rem] flex flex-col items-center justify-center gap-1"
-           style={{ opacity: visible ? 1 : 0 }}>
+      <div
+        className="transition-opacity duration-500 min-h-[4rem] flex flex-col items-center justify-center gap-1"
+        style={{ opacity: visible ? 1 : 0 }}
+      >
         {item ? (
           item.snippet ? (
             <>
@@ -57,6 +60,7 @@ function TrackLoader({ tracks }) {
   )
 }
 
+// Fixed SSE parser — rejoins multi-line data: fields with \n
 function parseSSEChunk(chunk) {
   const events = []
   const blocks = chunk.split(/\n\n+/)
@@ -64,12 +68,12 @@ function parseSSEChunk(chunk) {
     if (!block.trim()) continue
     const lines = block.split('\n')
     let event = 'message'
-    let data = ''
+    let dataParts = []
     for (const line of lines) {
       if (line.startsWith('event: ')) event = line.slice(7).trim()
-      else if (line.startsWith('data: ')) data += line.slice(6)
+      else if (line.startsWith('data: ')) dataParts.push(line.slice(6))
     }
-    if (data) events.push({ event, data })
+    if (dataParts.length) events.push({ event, data: dataParts.join('\n') })
   }
   return events
 }
@@ -78,26 +82,10 @@ export function AgentChat() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
-  const [tracks, setTracks] = useState([])
+  const tracks = useLyrics()
   const bufferRef = useRef('')
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
-
-  useEffect(() => {
-    // Try Genius snippets first, fall back to plain top tracks
-    fetch('/api/taste/lyrics-snippets?days=30&limit=15')
-      .then(r => r.json())
-      .then(data => {
-        if (data.length) {
-          setTracks(data)
-        } else {
-          return fetch('/api/taste/top-tracks?days=30&limit=20')
-            .then(r => r.json())
-            .then(setTracks)
-        }
-      })
-      .catch(() => {})
-  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -111,9 +99,10 @@ export function AgentChat() {
     setStreaming(true)
     bufferRef.current = ''
 
-    const userMsg = { role: 'user', content: text }
-    // assistant placeholder — content null means "still thinking"
-    setMessages(prev => [...prev, userMsg, { role: 'assistant', content: null }])
+    setMessages(prev => [...prev,
+      { role: 'user', content: text },
+      { role: 'assistant', content: null }, // null = still thinking
+    ])
 
     try {
       const res = await fetch('/api/agent/chat', {
@@ -131,22 +120,20 @@ export function AgentChat() {
         if (done) break
         rawBuffer += decoder.decode(value, { stream: true })
 
+        // Split on double-newline that starts a new event
         const parts = rawBuffer.split(/\n\n(?=(?:event:|data:))/)
         rawBuffer = parts.pop() ?? ''
 
         for (const part of parts) {
-          const parsed = parseSSEChunk(part + '\n\n')
-          for (const { event, data } of parsed) {
-            if (event === 'message' || event === 'message\r') {
+          for (const { event, data } of parseSSEChunk(part + '\n\n')) {
+            if (event === 'message') {
               bufferRef.current += data
-            } else if (event === 'done') {
-              // handled below
             }
-            // tool_start / tool_end — lyrics loader handles the visual
+            // tool_start / tool_end / done: TrackLoader handles visuals
           }
         }
       }
-    } catch (e) {
+    } catch {
       bufferRef.current = 'Error: could not reach the agent.'
     } finally {
       const finalContent = bufferRef.current || 'No response.'
@@ -162,15 +149,11 @@ export function AgentChat() {
   }
 
   const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send()
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
   return (
     <div className="flex flex-col h-full">
-
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-1 py-4 space-y-4">
         {messages.length === 0 && (
@@ -182,13 +165,10 @@ export function AgentChat() {
                 'What have I been listening to most this year?',
                 'Find connections between my music and books.',
               ].map(s => (
-                <button
-                  key={s}
+                <button key={s}
                   onClick={() => { setInput(s); inputRef.current?.focus() }}
                   className="text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-1.5 rounded-full transition-colors"
-                >
-                  {s}
-                </button>
+                >{s}</button>
               ))}
             </div>
           </div>
@@ -211,18 +191,13 @@ export function AgentChat() {
                     prose-td:px-2 prose-td:py-1 prose-td:border prose-td:border-zinc-700
                     prose-code:text-violet-300 prose-pre:bg-zinc-900
                     prose-headings:text-zinc-100 prose-strong:text-zinc-100">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {msg.content}
-                    </ReactMarkdown>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                   </div>
                 )
-              ) : (
-                msg.content
-              )}
+              ) : msg.content}
             </div>
           </div>
         ))}
-
         <div ref={bottomRef} />
       </div>
 
@@ -241,14 +216,10 @@ export function AgentChat() {
               placeholder:text-zinc-500 resize-none focus:outline-none focus:border-violet-500
               disabled:opacity-50 transition-colors"
           />
-          <button
-            onClick={send}
-            disabled={!input.trim() || streaming}
+          <button onClick={send} disabled={!input.trim() || streaming}
             className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed
               text-white rounded-xl px-4 py-2.5 text-sm font-medium transition-colors shrink-0"
-          >
-            {streaming ? '…' : 'Send'}
-          </button>
+          >{streaming ? '…' : 'Send'}</button>
         </div>
         <p className="text-xs text-zinc-600 mt-1.5">Enter to send · Shift+Enter for new line</p>
       </div>
