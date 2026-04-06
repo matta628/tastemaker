@@ -292,15 +292,18 @@ async def _lyrics_background_fetch():
     Skips if cache is fresh. Rate-limited to ~1 search+scrape per 2 seconds."""
     token = os.environ.get("GENIUS_ACCESS_TOKEN")
     if not token:
+        print("[lyrics] No GENIUS_ACCESS_TOKEN found — skipping lyrics fetch")
         return
 
-    # Check cache freshness
     if LYRICS_CACHE.exists():
         age_days = (time.time() - LYRICS_CACHE.stat().st_mtime) / 86400
         if age_days < LYRICS_CACHE_MAX_AGE_DAYS:
-            return  # cache is fresh, nothing to do
+            cached = json.loads(LYRICS_CACHE.read_text())
+            print(f"[lyrics] Cache is fresh ({age_days:.1f} days old, {len(cached)} tracks) — skipping fetch")
+            return
 
-    await asyncio.sleep(5)  # let server finish starting up
+    await asyncio.sleep(5)
+    print("[lyrics] Starting Genius lyrics fetch for top 100 tracks (30 months)…")
 
     try:
         conn = duckdb.connect(str(DB_PATH), read_only=True)
@@ -313,18 +316,23 @@ async def _lyrics_background_fetch():
             LIMIT 100
         """).fetchall()
         conn.close()
-    except Exception:
+        print(f"[lyrics] Got {len(rows)} tracks to look up")
+    except Exception as e:
+        print(f"[lyrics] DB query failed: {e}")
         return
 
     results = []
-    for track, artist, plays in rows:
+    for i, (track, artist, plays) in enumerate(rows):
         snippet = await asyncio.to_thread(_genius_snippet, track, artist, token)
         if snippet:
             results.append({"track": track, "artist": artist, "plays": plays, "snippet": snippet})
-        await asyncio.sleep(2)  # 1 search + 1 scrape per track, ~2s gap = safe rate
+            print(f"[lyrics] ({i+1}/{len(rows)}) ✓ {artist} — {track}")
+        else:
+            print(f"[lyrics] ({i+1}/{len(rows)}) ✗ {artist} — {track} (not found)")
+        await asyncio.sleep(2)
 
-    if results:
-        LYRICS_CACHE.write_text(json.dumps(results))
+    LYRICS_CACHE.write_text(json.dumps(results))
+    print(f"[lyrics] Done — {len(results)}/{len(rows)} tracks with snippets cached")
 
 
 @app.get("/taste/lyrics-snippets")

@@ -9,6 +9,8 @@ services:
     volumes:
       # DB file persists on the Pi's disk, not inside the container
       - ./tastemaker.db:/app/tastemaker.db
+      # Lyrics cache persists across rebuilds
+      - ./lyrics_cache.json:/app/lyrics_cache.json
       # Secrets mounted at runtime — never baked into the image
       - ./.env.secret:/app/.env.secret:ro
     env_file:
