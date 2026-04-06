@@ -4,12 +4,14 @@ import { SongLibrary } from './components/SongLibrary'
 import { SongForm } from './components/SongForm'
 import { PracticeQueue } from './components/PracticeQueue'
 import { NudgePanel } from './components/NudgePanel'
+import { AgentChat } from './components/AgentChat'
 import './index.css'
 
 const NAV = [
   { id: 'Library',   icon: '📚', label: 'Library'  },
   { id: 'Practice',  icon: '🎸', label: 'Practice' },
   { id: 'Add Song',  icon: '+',  label: 'Add Song'  },
+  { id: 'Chat',      icon: '✦',  label: 'Chat'      },
 ]
 
 export default function App() {
@@ -155,6 +157,9 @@ export default function App() {
               {songs.filter(s => !s.notes?.trim()).length} songs missing notes
             </span>
           )}
+          {activeTab === 'Chat' && (
+            <span className="text-sm text-zinc-500">powered by Claude</span>
+          )}
         </div>
 
         {/* Content */}
@@ -178,6 +183,8 @@ export default function App() {
             <div className="max-w-lg">
               <SongForm onSave={handleAdd} songs={songs} />
             </div>
+          ) : activeTab === 'Chat' ? (
+            <AgentChat />
           ) : activeTab === 'edit' && editingSong ? (
             <div className="max-w-lg">
               <SongForm
