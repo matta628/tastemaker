@@ -388,6 +388,31 @@ def lyrics_snippets():
 # Pipelines
 # ---------------------------------------------------------------------------
 
+@app.get("/pipelines/status")
+def pipelines_status():
+    """Return last sync time and staleness for each pipeline."""
+    conn = db()
+    rows = conn.execute(
+        "SELECT pipeline_name, last_fetched_at FROM pipeline_state"
+    ).fetchall()
+    conn.close()
+
+    state = {r[0]: r[1] for r in rows}
+    now = datetime.now(tz=timezone.utc)
+
+    def entry(name):
+        ts = state.get(name)
+        if ts is None:
+            return {"last_fetched_at": None, "days_ago": None, "stale": True}
+        days = (now - ts).total_seconds() / 86400
+        return {"last_fetched_at": ts.isoformat(), "days_ago": round(days, 1), "stale": days > 7}
+
+    return {
+        "lastfm": entry("lastfm"),
+        "lastfm_enrich": entry("lastfm_enrich"),
+    }
+
+
 @app.post("/pipelines/lastfm/sync", status_code=202)
 async def trigger_lastfm_sync():
     """Kick off a Last.fm sync in the background. Returns immediately."""
@@ -402,6 +427,20 @@ async def trigger_lastfm_sync():
     return {"status": "syncing"}
 
 
+@app.post("/pipelines/lastfm/enrich", status_code=202)
+async def trigger_lastfm_enrich():
+    """Kick off artist tag / similar artist / track tag enrichment in the background."""
+    async def run():
+        import subprocess
+        result = subprocess.run(
+            ["python", "-m", "backend.pipelines.lastfm", "enrich"],
+            capture_output=True, text=True
+        )
+        print("[lastfm] enrich done:", result.stdout[-500:] if result.stdout else result.stderr[-500:])
+    asyncio.create_task(run())
+    return {"status": "enriching"}
+
+
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
@@ -409,6 +448,58 @@ async def trigger_lastfm_sync():
 class ChatRequest(BaseModel):
     message: str
     thread_id: str = "default"
+
+
+class PlaylistRequest(BaseModel):
+    prompt: str
+
+
+@app.post("/agent/playlist")
+async def agent_playlist(body: PlaylistRequest):
+    """
+    Generate a playlist from a natural language prompt.
+    Streams SSE like /agent/chat. The final tool_result event contains
+    the playlist JSON (name, tracks, shortcuts_url).
+    """
+    from backend.agent.graph import get_agent
+
+    agent = get_agent()
+    config = {"configurable": {"thread_id": f"playlist-{id(body)}"}}
+    system_msg = (
+        "The user wants a playlist. Query their personal data first, "
+        "then call build_playlist with the result. "
+        f"Their request: {body.prompt}"
+    )
+
+    async def stream():
+        async for event in agent.astream_events(
+            {"messages": [{"role": "user", "content": system_msg}]},
+            config=config,
+            version="v2",
+        ):
+            kind = event["event"]
+            if kind == "on_chat_model_stream":
+                chunk = event["data"]["chunk"]
+                text = None
+                if chunk.content and isinstance(chunk.content, list):
+                    for part in chunk.content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text = part["text"]
+                elif isinstance(chunk.content, str) and chunk.content:
+                    text = chunk.content
+                if text:
+                    encoded = "\n".join(f"data: {line}" for line in text.split("\n"))
+                    yield f"{encoded}\n\n"
+            elif kind == "on_tool_start":
+                yield f"event: tool_start\ndata: {event.get('name', 'tool')}\n\n"
+            elif kind == "on_tool_end" and event.get("name") == "build_playlist":
+                # Emit the playlist JSON so the frontend can render the track list
+                yield f"event: playlist\ndata: {event['data']['output']}\n\n"
+            elif kind == "on_tool_end":
+                yield f"event: tool_end\ndata: done\n\n"
+        yield "event: done\ndata: done\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 @app.post("/agent/chat")

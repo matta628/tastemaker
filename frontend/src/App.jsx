@@ -7,16 +7,19 @@ import { NudgePanel } from './components/NudgePanel'
 import { AgentChat } from './components/AgentChat'
 import { LyricsTape } from './components/LyricsTape'
 import { Vibes } from './components/Vibes'
+import { PlaylistCreator } from './components/PlaylistCreator'
 import { useLyrics } from './components/useLyrics'
 import { SyncButton } from './components/SyncButton'
+import { StaleBanner } from './components/StaleBanner'
 import './index.css'
 
 const NAV = [
-  { id: 'Library',   icon: '📚', label: 'Library'  },
-  { id: 'Practice',  icon: '🎸', label: 'Practice' },
-  { id: 'Add Song',  icon: '+',  label: 'Add Song'  },
-  { id: 'Chat',      icon: '✦',  label: 'Chat'      },
-  { id: 'Vibes',     icon: '♪',  label: 'Vibes'     },
+  { id: 'Library',   icon: '📚', label: 'Library'   },
+  { id: 'Practice',  icon: '🎸', label: 'Practice'  },
+  { id: 'Add Song',  icon: '+',  label: 'Add Song'   },
+  { id: 'Playlist',  icon: '♫',  label: 'Playlist'  },
+  { id: 'Chat',      icon: '✦',  label: 'Chat'       },
+  { id: 'Vibes',     icon: '♪',  label: 'Vibes'      },
 ]
 
 export default function App() {
@@ -101,6 +104,8 @@ export default function App() {
     <div className="h-svh overflow-hidden bg-zinc-950 flex flex-col">
       <LyricsTape tracks={lyrics} />
 
+      <StaleBanner />
+
       <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
 
       {/* ── Sidebar (desktop only) ── */}
@@ -167,6 +172,9 @@ export default function App() {
               {songs.filter(s => !s.notes?.trim()).length} songs missing notes
             </span>
           )}
+          {activeTab === 'Playlist' && (
+            <span className="text-sm text-zinc-500">powered by Claude · opens in Shortcuts</span>
+          )}
           {activeTab === 'Chat' && (
             <span className="text-sm text-zinc-500">powered by Claude</span>
           )}
@@ -176,7 +184,7 @@ export default function App() {
         </div>
 
         {/* Content */}
-        <main className={`flex-1 overflow-hidden ${!['Chat', 'Vibes'].includes(activeTab) ? 'overflow-y-auto px-4 md:px-8 py-5' : 'px-4 md:px-8'}`}>
+        <main className={`flex-1 overflow-hidden ${!['Chat', 'Vibes', 'Playlist'].includes(activeTab) ? 'overflow-y-auto px-4 md:px-8 py-5' : 'px-4 md:px-8'}`}>
           {error && (
             <div className="bg-red-950 border border-red-800 text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
               {error}
@@ -196,6 +204,8 @@ export default function App() {
             <div className="max-w-lg">
               <SongForm onSave={handleAdd} songs={songs} />
             </div>
+          ) : activeTab === 'Playlist' ? (
+            <PlaylistCreator />
           ) : activeTab === 'Vibes' ? (
             <Vibes />
           ) : activeTab === 'Chat' ? (

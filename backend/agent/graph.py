@@ -8,7 +8,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 from backend.agent.prompts import SYSTEM_PROMPT
-from backend.agent.tools import query_database
+from backend.agent.tools import query_database, build_playlist, track_similar_lookup
 
 # Load secrets at import time (works both locally and in Docker)
 load_dotenv(".env.secret")
@@ -29,7 +29,7 @@ def get_agent():
         _checkpointer = MemorySaver()
         _agent = create_react_agent(
             model=_model,
-            tools=[query_database],
+            tools=[query_database, build_playlist, track_similar_lookup],
             prompt=SYSTEM_PROMPT,
             checkpointer=_checkpointer,
         )

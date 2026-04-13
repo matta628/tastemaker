@@ -1,31 +1,62 @@
 import { useState } from 'react'
 
+const BASE = '/api'
+
+async function postPipeline(path) {
+  const res = await fetch(`${BASE}${path}`, { method: 'POST' })
+  if (!res.ok) throw new Error()
+}
+
 export function SyncButton() {
-  const [state, setState] = useState('idle') // idle | syncing | done | error
+  const [syncState,   setSyncState]   = useState('idle')  // idle | running | done | error
+  const [enrichState, setEnrichState] = useState('idle')
 
   const sync = async () => {
-    setState('syncing')
+    setSyncState('running')
     try {
-      const res = await fetch('/api/pipelines/lastfm/sync', { method: 'POST' })
-      if (!res.ok) throw new Error()
-      setState('done')
-      setTimeout(() => setState('idle'), 4000)
+      await postPipeline('/pipelines/lastfm/sync')
+      setSyncState('done')
+      setTimeout(() => setSyncState('idle'), 4000)
     } catch {
-      setState('error')
-      setTimeout(() => setState('idle'), 4000)
+      setSyncState('error')
+      setTimeout(() => setSyncState('idle'), 4000)
+    }
+  }
+
+  const enrich = async () => {
+    setEnrichState('running')
+    try {
+      await postPipeline('/pipelines/lastfm/enrich')
+      setEnrichState('done')
+      setTimeout(() => setEnrichState('idle'), 4000)
+    } catch {
+      setEnrichState('error')
+      setTimeout(() => setEnrichState('idle'), 4000)
     }
   }
 
   return (
-    <button
-      onClick={sync}
-      disabled={state === 'syncing'}
-      className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40 transition-colors text-left"
-    >
-      {state === 'idle'    && '↻ sync last.fm'}
-      {state === 'syncing' && '↻ syncing…'}
-      {state === 'done'    && '✓ sync started'}
-      {state === 'error'   && '✗ sync failed'}
-    </button>
+    <div className="flex flex-col gap-1">
+      <button
+        onClick={sync}
+        disabled={syncState === 'running'}
+        className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40 transition-colors text-left"
+      >
+        {syncState === 'idle'    && '↻ sync last.fm'}
+        {syncState === 'running' && '↻ syncing…'}
+        {syncState === 'done'    && '✓ sync started'}
+        {syncState === 'error'   && '✗ sync failed'}
+      </button>
+      <button
+        onClick={enrich}
+        disabled={enrichState === 'running'}
+        className="text-xs text-zinc-500 hover:text-zinc-300 disabled:opacity-40 transition-colors text-left"
+      >
+        {enrichState === 'idle'    && '◈ enrich tags'}
+        {enrichState === 'running' && '◈ enriching…'}
+        {enrichState === 'done'    && '✓ enrich started'}
+        {enrichState === 'error'   && '✗ enrich failed'}
+      </button>
+    </div>
   )
 }

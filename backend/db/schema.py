@@ -151,6 +151,37 @@ def create_schema():
     """)
 
     # -------------------------------------------------------------------------
+    # Enrichment tables — populated by lastfm enrichment pipeline
+    # -------------------------------------------------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS artist_tags (
+            artist_name  VARCHAR NOT NULL,
+            tag          VARCHAR NOT NULL,
+            weight       INTEGER NOT NULL,   -- 0-100, Last.fm community weight
+            PRIMARY KEY (artist_name, tag)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS artist_similar (
+            artist_name     VARCHAR NOT NULL,
+            similar_artist  VARCHAR NOT NULL,
+            similarity      FLOAT NOT NULL,  -- 0-1, Last.fm similarity score
+            PRIMARY KEY (artist_name, similar_artist)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS track_tags (
+            track        VARCHAR NOT NULL,
+            artist       VARCHAR NOT NULL,
+            tag          VARCHAR NOT NULL,
+            weight       INTEGER NOT NULL,   -- 0-100
+            PRIMARY KEY (track, artist, tag)
+        )
+    """)
+
+    # -------------------------------------------------------------------------
     # taste_tags — the cross-domain junction table
     # Maps both books and artists to a shared tag/genre namespace.
     # This is what lets the agent traverse from music → books → guitar.
