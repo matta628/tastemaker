@@ -5,6 +5,7 @@ import { SongForm } from './components/SongForm'
 import { PracticeQueue } from './components/PracticeQueue'
 import { NudgePanel } from './components/NudgePanel'
 import { AgentChat } from './components/AgentChat'
+import { ChatProvider, useChatContext } from './components/ChatContext'
 import { LyricsTape } from './components/LyricsTape'
 import { Vibes } from './components/Vibes'
 import { PlaylistCreator } from './components/PlaylistCreator'
@@ -24,7 +25,8 @@ const NAV = [
   { id: 'Sync',      icon: '↻',  label: 'Sync'       },
 ]
 
-export default function App() {
+function AppInner() {
+  const { streaming } = useChatContext()
   const [tab, setTab] = useState('Library')
   const [songs, setSongs] = useState([])
   const { tracks: lyrics } = useLyrics()
@@ -128,7 +130,10 @@ export default function App() {
               }`}
             >
               <span className="text-base w-5 text-center">{icon}</span>
-              {label}
+              <span className="flex-1">{label}</span>
+              {id === 'Chat' && streaming && (
+                <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+              )}
             </button>
           ))}
         </nav>
@@ -151,13 +156,16 @@ export default function App() {
               <button
                 key={id}
                 onClick={() => goTo(id)}
-                className={`text-sm px-4 py-2.5 font-medium transition-colors border-b-2 -mb-px ${
+                className={`relative text-sm px-4 py-2.5 font-medium transition-colors border-b-2 -mb-px ${
                   activeTab === id
                     ? 'border-violet-500 text-violet-400'
                     : 'border-transparent text-zinc-500 hover:text-zinc-300'
                 }`}
               >
                 {label}
+                {id === 'Chat' && streaming && (
+                  <span className="absolute top-2 right-1 w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
+                )}
               </button>
             ))}
           </nav>
@@ -227,5 +235,13 @@ export default function App() {
       </div>
       </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <ChatProvider>
+      <AppInner />
+    </ChatProvider>
   )
 }

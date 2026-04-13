@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useLyrics } from './useLyrics'
-
-const THREAD_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
+import { useChatContext } from './ChatContext'
 
 function SnippetLines({ snippet }) {
   const lines = snippet.split('\n').map(l => l.trim()).filter(Boolean)
@@ -77,101 +76,31 @@ export function TrackLoader({ tracks }) {
   )
 }
 
-// Fixed SSE parser — rejoins multi-line data: fields with \n
-function parseSSEChunk(chunk) {
-  const events = []
-  const blocks = chunk.split(/\n\n+/)
-  for (const block of blocks) {
-    if (!block.trim()) continue
-    const lines = block.split('\n')
-    let event = 'message'
-    let dataParts = []
-    for (const line of lines) {
-      if (line.startsWith('event: ')) event = line.slice(7).trim()
-      else if (line.startsWith('data: ')) dataParts.push(line.slice(6))
-    }
-    if (dataParts.length) events.push({ event, data: dataParts.join('\n') })
-  }
-  return events
-}
-
 export function AgentChat() {
-  const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const tracks = useLyrics()
-  const bufferRef = useRef('')
-  const bottomRef = useRef(null)
-  const inputRef = useRef(null)
+  const { messages, streaming, send, cancel } = useChatContext()
+  const { tracks } = useLyrics()
+  const [input, setInput]   = useState('')
+  const bottomRef           = useRef(null)
+  const inputRef            = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const send = async () => {
+  // Refocus input when streaming finishes and we're on this tab
+  useEffect(() => {
+    if (!streaming) inputRef.current?.focus()
+  }, [streaming])
+
+  const handleSend = () => {
     const text = input.trim()
     if (!text || streaming) return
-
     setInput('')
-    setStreaming(true)
-    bufferRef.current = ''
-
-    setMessages(prev => [...prev,
-      { role: 'user', content: text },
-      { role: 'assistant', content: null }, // null = still thinking
-    ])
-
-    try {
-      const res = await fetch('/api/agent/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, thread_id: THREAD_ID }),
-      })
-
-      if (!res.ok) {
-        const err = await res.text().catch(() => res.statusText)
-        throw new Error(`${res.status}: ${err}`)
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let rawBuffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        rawBuffer += decoder.decode(value, { stream: true })
-
-        // Split on double-newline that starts a new event
-        const parts = rawBuffer.split(/\n\n(?=(?:event:|data:))/)
-        rawBuffer = parts.pop() ?? ''
-
-        for (const part of parts) {
-          for (const { event, data } of parseSSEChunk(part + '\n\n')) {
-            if (event === 'message') {
-              bufferRef.current += data
-            }
-            // tool_start / tool_end / done: TrackLoader handles visuals
-          }
-        }
-      }
-    } catch (e) {
-      bufferRef.current = `Error: ${e.message || 'could not reach the agent.'}`
-    } finally {
-      const finalContent = bufferRef.current || 'No response.'
-      setMessages(prev => {
-        const msgs = [...prev]
-        msgs[msgs.length - 1] = { role: 'assistant', content: finalContent }
-        return msgs
-      })
-      setStreaming(false)
-      bufferRef.current = ''
-      inputRef.current?.focus()
-    }
+    send(text)
   }
 
   const handleKey = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
   return (
@@ -233,15 +162,29 @@ export function AgentChat() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKey}
             disabled={streaming}
-            placeholder="Ask about your taste…"
+            placeholder={streaming ? 'Thinking… (you can switch tabs)' : 'Ask about your taste…'}
             className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-zinc-100
               placeholder:text-zinc-500 resize-none focus:outline-none focus:border-violet-500
               disabled:opacity-50 transition-colors"
           />
-          <button onClick={send} disabled={!input.trim() || streaming}
-            className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed
-              text-white rounded-xl px-4 py-2.5 text-sm font-medium transition-colors shrink-0"
-          >{streaming ? '…' : 'Send'}</button>
+          {streaming ? (
+            <button
+              onClick={cancel}
+              className="bg-zinc-700 hover:bg-red-900 text-zinc-300 hover:text-red-300
+                rounded-xl px-4 py-2.5 text-sm font-medium transition-colors shrink-0"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed
+                text-white rounded-xl px-4 py-2.5 text-sm font-medium transition-colors shrink-0"
+            >
+              Send
+            </button>
+          )}
         </div>
         <p className="text-xs text-zinc-600 mt-1.5">Enter to send · Shift+Enter for new line</p>
       </div>
