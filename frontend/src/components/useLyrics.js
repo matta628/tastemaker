@@ -13,7 +13,7 @@ export function useLyrics() {
           setLoading(false)
         } else {
           // Cache empty — fall back to raw top tracks (no snippets yet)
-          return fetch('/api/taste/top-tracks?days=900&limit=40')
+          return fetch('/api/taste/top-tracks?days=30&limit=40')
             .then(r => r.json())
             .then(data => { setTracks(data); setLoading(false) })
         }

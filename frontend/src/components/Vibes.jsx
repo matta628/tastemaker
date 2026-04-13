@@ -7,7 +7,7 @@ export function Vibes() {
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-6 px-4">
-      <p className="text-zinc-600 text-xs uppercase tracking-widest">your top tracks · last 30 months</p>
+      <p className="text-zinc-600 text-xs uppercase tracking-widest">your top tracks · last 30 days</p>
       {loading ? (
         <p className="text-zinc-600 text-sm animate-pulse">Loading tracks…</p>
       ) : tracks.length === 0 ? (

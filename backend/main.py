@@ -339,7 +339,7 @@ def _lyrics_snippet(track: str, artist: str) -> str | None:
 
 
 async def _lyrics_background_fetch():
-    """On startup: fetch lyric snippets for top 100 tracks (30 months) via lyrics.ovh, cache to disk.
+    """On startup: fetch lyric snippets for top 100 tracks (last 30 days) via lyrics.ovh, cache to disk.
     Skips if cache is fresh. Rate-limited to 1 request per second."""
     if LYRICS_CACHE.exists() and LYRICS_CACHE.stat().st_size > 10:
         age_days = (time.time() - LYRICS_CACHE.stat().st_mtime) / 86400
@@ -349,14 +349,14 @@ async def _lyrics_background_fetch():
             return
 
     await asyncio.sleep(5)
-    print("[lyrics] Starting lyrics fetch for top 100 tracks (30 months)…")
+    print("[lyrics] Starting lyrics fetch for top 100 tracks (last 30 days)…")
 
     try:
         conn = duckdb.connect(str(DB_PATH), read_only=True)
         rows = conn.execute("""
             SELECT track, artist, COUNT(*) as plays
             FROM raw_scrobbles
-            WHERE scrobbled_at >= now() - INTERVAL '30 months'
+            WHERE scrobbled_at >= now() - INTERVAL '30 days'
             GROUP BY track, artist
             ORDER BY plays DESC
             LIMIT 100
