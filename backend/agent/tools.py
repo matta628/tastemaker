@@ -54,7 +54,8 @@ def build_playlist(name: str, tracks: list[dict]) -> str:
     Args:
         name:   A short, evocative playlist name (e.g. "Autumn Pages", "Funk Friday")
         tracks: List of {"title": str, "artist": str} dicts, ordered as they should play.
-                Aim for 15-25 tracks for a good playlist length.
+                Aim for 15-25 tracks for a good playlist length unless the user specifies a count.
+                Maximum 250 tracks.
 
     Returns:
         A JSON string with:
@@ -67,6 +68,7 @@ def build_playlist(name: str, tracks: list[dict]) -> str:
     2. Use artist_similar to expand beyond direct history if needed
     3. Order tracks thoughtfully — energy arc, not alphabetical
     """
+    tracks = tracks[:250]  # cap to prevent URL length issues with iOS Shortcuts
     url = build_shortcuts_url(name, tracks)
     return json.dumps({
         "name": name,
