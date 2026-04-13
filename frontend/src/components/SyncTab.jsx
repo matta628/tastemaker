@@ -33,10 +33,8 @@ export function SyncTab() {
   } = useChatContext()
 
   const enrich = status?.enrichment
-  const enrichComplete = enrich &&
-    enrich.artist_tags.pct >= 100 &&
-    enrich.artist_similar.pct >= 100 &&
-    enrich.track_tags.pct >= 100
+  // Complete = process finished with no error (skipped entries mean pct never hits 100)
+  const enrichComplete = enrich && !enrich.process_running && !enrich.last_error && enrich.last_fetched_at
 
   const enrichRunning = enrichState === 'running'
   const enrichError   = enrichState === 'error'

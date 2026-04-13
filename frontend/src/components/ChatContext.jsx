@@ -191,8 +191,7 @@ export function ChatProvider({ children }) {
         const e = data.enrichment
         if (!e.process_running) {
           // Process stopped — check outcome
-          const allDone = e.artist_tags.pct >= 100 && e.artist_similar.pct >= 100 && e.track_tags.pct >= 100
-          if (allDone) {
+          if (!e.last_error) {
             setEnrichState('done')
           } else if (e.last_error) {
             setEnrichState('error')
