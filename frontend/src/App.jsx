@@ -193,7 +193,7 @@ function AppInner() {
         </div>
 
         {/* Content */}
-        <main className={`flex-1 overflow-hidden ${!['Chat', 'Vibes', 'Playlist'].includes(activeTab) ? 'overflow-y-auto px-4 md:px-8 py-5' : 'px-4 md:px-8'}`}>
+        <main className={`flex-1 overflow-hidden ${activeTab === 'Playlist' ? '' : !['Chat', 'Vibes'].includes(activeTab) ? 'overflow-y-auto px-4 md:px-8 py-5' : 'px-4 md:px-8'}`}>
           {error && (
             <div className="bg-red-950 border border-red-800 text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
               {error}
