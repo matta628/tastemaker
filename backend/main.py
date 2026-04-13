@@ -571,7 +571,15 @@ async def agent_playlist(body: PlaylistRequest):
                     tool = event.get("name", "")
                     print(f"[playlist] Tool end: {tool}")
                     if tool == "build_playlist":
-                        raw = event["data"].get("output", "")
+                        data = event.get("data", {})
+                        # LangGraph v2: event["data"] may be a ToolMessage object or a dict
+                        if hasattr(data, "content"):
+                            raw = data.content
+                        elif isinstance(data, dict):
+                            output = data.get("output", "")
+                            raw = output.content if hasattr(output, "content") else str(output) if output else ""
+                        else:
+                            raw = str(data) if data else ""
                         # output may be a double-encoded JSON string — unwrap if needed
                         try:
                             playlist_data = json.loads(raw) if isinstance(raw, str) else raw
