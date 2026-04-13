@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv(".env.secret")
 
 LYRICS_CACHE = Path("lyrics_cache.json")
-LYRICS_CACHE_MAX_AGE_DAYS = 7
+LYRICS_CACHE_MAX_AGE_DAYS = 30  # invalidated by sync, not by age
 
 from backend.db.schema import DB_PATH, create_schema
 
@@ -459,6 +459,11 @@ async def trigger_lastfm_sync():
                 capture_output=True, text=True
             )
             print("[lastfm] sync done:", result.stdout[-500:] if result.stdout else result.stderr[-500:])
+            # Invalidate lyrics cache so it rebuilds with fresh scrobble data
+            if LYRICS_CACHE.exists():
+                LYRICS_CACHE.unlink()
+                print("[lyrics] Cache invalidated after sync — rebuilding in background")
+                asyncio.create_task(_lyrics_background_fetch())
         finally:
             _sync_running = False
 
