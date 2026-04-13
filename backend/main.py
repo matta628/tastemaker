@@ -48,6 +48,11 @@ app.add_middleware(
 Status = Literal["want_to_learn", "learning", "learned", "abandoned"]
 Part = Literal["chords", "tabs", "solo"]
 
+# ── Pipeline run-state (in-process flags) ─────────────────────────────────
+_enrich_running: bool = False
+_enrich_last_error: str | None = None
+_sync_running: bool = False
+
 
 def db():
     return duckdb.connect(str(DB_PATH))
@@ -424,9 +429,11 @@ def pipelines_status():
         return round(done / total * 100, 1) if total else 0
 
     return {
-        "lastfm": sync_entry("lastfm"),
+        "lastfm": {**sync_entry("lastfm"), "process_running": _sync_running},
         "enrichment": {
             **sync_entry("lastfm_enrich"),
+            "process_running": _enrich_running,
+            "last_error":      _enrich_last_error,
             "artist_tags":    {"done": done_artist_tags,    "total": total_artists, "pct": pct(done_artist_tags,    total_artists)},
             "artist_similar": {"done": done_artist_similar, "total": total_artists, "pct": pct(done_artist_similar, total_artists)},
             "track_tags":     {"done": done_track_tags,     "total": total_tracks,  "pct": pct(done_track_tags,     total_tracks)},
@@ -437,29 +444,58 @@ def pipelines_status():
 @app.post("/pipelines/lastfm/sync", status_code=202)
 async def trigger_lastfm_sync():
     """Kick off a Last.fm sync in the background. Returns immediately."""
+    global _sync_running
+    if _sync_running:
+        return {"status": "already_running"}
+
     async def run():
-        import subprocess
-        result = await asyncio.to_thread(
-            subprocess.run,
-            ["python", "-m", "backend.pipelines.lastfm"],
-            capture_output=True, text=True
-        )
-        print("[lastfm] sync done:", result.stdout[-500:] if result.stdout else result.stderr[-500:])
+        global _sync_running
+        _sync_running = True
+        try:
+            import subprocess
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["python", "-m", "backend.pipelines.lastfm"],
+                capture_output=True, text=True
+            )
+            print("[lastfm] sync done:", result.stdout[-500:] if result.stdout else result.stderr[-500:])
+        finally:
+            _sync_running = False
+
     asyncio.create_task(run())
     return {"status": "syncing"}
 
 
 @app.post("/pipelines/lastfm/enrich", status_code=202)
 async def trigger_lastfm_enrich():
-    """Kick off artist tag / similar artist / track tag enrichment in the background."""
+    """Kick off enrichment. Rejects if already running to prevent stacked processes."""
+    global _enrich_running, _enrich_last_error
+    if _enrich_running:
+        return {"status": "already_running"}
+
     async def run():
-        import subprocess
-        result = await asyncio.to_thread(
-            subprocess.run,
-            ["python", "-m", "backend.pipelines.lastfm", "enrich"],
-            capture_output=True, text=True
-        )
-        print("[lastfm] enrich done:", result.stdout[-500:] if result.stdout else result.stderr[-500:])
+        global _enrich_running, _enrich_last_error
+        _enrich_running = True
+        _enrich_last_error = None
+        try:
+            import subprocess
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["python", "-m", "backend.pipelines.lastfm", "enrich"],
+                capture_output=True, text=True
+            )
+            tail = (result.stdout or result.stderr or "")[-800:]
+            if result.returncode != 0:
+                _enrich_last_error = f"Exit {result.returncode}: {(result.stderr or result.stdout or 'no output')[-400:]}"
+                print(f"[lastfm] enrich FAILED (exit {result.returncode}):", tail)
+            else:
+                print("[lastfm] enrich done:", tail)
+        except Exception as e:
+            _enrich_last_error = str(e)
+            print(f"[lastfm] enrich exception: {e}")
+        finally:
+            _enrich_running = False
+
     asyncio.create_task(run())
     return {"status": "enriching"}
 

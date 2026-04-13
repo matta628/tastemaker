@@ -156,6 +156,122 @@ export function ChatProvider({ children }) {
 
   useEffect(() => { fetchSaved() }, [fetchSaved])
 
+  // ── Pipeline (sync / enrich) state ────────────────────────────────────────
+  const POLL_MS = 8000
+  const [pipelineStatus, setPipelineStatus] = useState(null)
+  const [syncState,      setSyncState]      = useState('idle')   // idle | running | done | error
+  const [enrichState,    setEnrichState]    = useState('idle')   // idle | running | done | error
+  const [enrichStuck,    setEnrichStuck]    = useState(false)
+  const enrichStateRef = useRef('idle')
+  const prevPctsRef    = useRef(null)
+  const stuckCountRef  = useRef(0)
+  const pipelinePollRef = useRef(null)
+
+  // Keep ref in sync so fetchPipelineStatus closure doesn't need enrichState as dep
+  useEffect(() => { enrichStateRef.current = enrichState }, [enrichState])
+
+  const fetchPipelineStatus = useCallback(async () => {
+    try {
+      const r = await fetch(`${BASE}/pipelines/status`)
+      const data = await r.json()
+      setPipelineStatus(data)
+
+      // On first load, detect if a process is already running on the server
+      // (e.g. page was refreshed while enrichment was in progress)
+      if (enrichStateRef.current === 'idle' && data.enrichment?.process_running) {
+        setEnrichState('running')
+        return
+      }
+      if (enrichStateRef.current === 'idle' && data.lastfm?.process_running) {
+        setSyncState('running')
+      }
+
+      // Detect enrichment finishing/failing
+      if (enrichStateRef.current === 'running' && data.enrichment) {
+        const e = data.enrichment
+        if (!e.process_running) {
+          // Process stopped — check outcome
+          const allDone = e.artist_tags.pct >= 100 && e.artist_similar.pct >= 100 && e.track_tags.pct >= 100
+          if (allDone) {
+            setEnrichState('done')
+          } else if (e.last_error) {
+            setEnrichState('error')
+          } else {
+            setEnrichState('idle')
+          }
+          setEnrichStuck(false)
+          stuckCountRef.current = 0
+          prevPctsRef.current = null
+          return
+        }
+
+        // Still running — stale-progress detection
+        const curPcts = [e.artist_tags.pct, e.artist_similar.pct, e.track_tags.pct].join(',')
+        if (prevPctsRef.current === curPcts) {
+          stuckCountRef.current += 1
+          if (stuckCountRef.current >= 5) setEnrichStuck(true)   // 40 s with no movement
+        } else {
+          stuckCountRef.current = 0
+          setEnrichStuck(false)
+        }
+        prevPctsRef.current = curPcts
+      }
+    } catch { /* network error — ignore, keep retrying */ }
+  }, []) // no state deps — uses refs
+
+  // Start/stop polling based on running states
+  useEffect(() => {
+    const running = syncState === 'running' || enrichState === 'running'
+    if (running) {
+      if (!pipelinePollRef.current) {
+        pipelinePollRef.current = setInterval(fetchPipelineStatus, POLL_MS)
+      }
+    } else {
+      clearInterval(pipelinePollRef.current)
+      pipelinePollRef.current = null
+    }
+    return () => {
+      clearInterval(pipelinePollRef.current)
+      pipelinePollRef.current = null
+    }
+  }, [syncState, enrichState, fetchPipelineStatus])
+
+  // Initial fetch on mount
+  useEffect(() => { fetchPipelineStatus() }, [fetchPipelineStatus])
+
+  const triggerSync = useCallback(async () => {
+    if (syncState === 'running') return
+    setSyncState('running')
+    try {
+      const res = await fetch(`${BASE}/pipelines/lastfm/sync`, { method: 'POST' })
+      if (!res.ok) throw new Error()
+      const body = await res.json()
+      if (body.status === 'already_running') return // server says it's already going
+      // Sync finishes in ~seconds; poll will pick up the new timestamp
+    } catch {
+      setSyncState('error')
+      setTimeout(() => setSyncState('idle'), 4000)
+    }
+  }, [syncState])
+
+  const triggerEnrich = useCallback(async () => {
+    if (enrichState === 'running') return
+    try {
+      const res = await fetch(`${BASE}/pipelines/lastfm/enrich`, { method: 'POST' })
+      if (!res.ok) throw new Error()
+      const body = await res.json()
+      if (body.status !== 'already_running') {
+        setEnrichState('running')
+        setEnrichStuck(false)
+        stuckCountRef.current = 0
+        prevPctsRef.current = null
+      }
+    } catch {
+      setEnrichState('error')
+      setTimeout(() => setEnrichState('idle'), 4000)
+    }
+  }, [enrichState])
+
   const send = async (text) => {
     if (!text.trim() || streaming) return
 
@@ -236,6 +352,9 @@ export function ChatProvider({ children }) {
       plPrompt, plStatus, plThoughts, plPlaylist, plToolMsg, plErrorMsg,
       plSaved, plModifying, setPlModifying, setPlPrompt,
       submitPlaylist, resetPlaylist, deletePlaylist, fetchSaved,
+      // pipeline
+      pipelineStatus, syncState, enrichState, enrichStuck,
+      triggerSync, triggerEnrich, fetchPipelineStatus,
     }}>
       {children}
     </ChatContext.Provider>

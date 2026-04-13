@@ -1,53 +1,21 @@
 // Shows a banner when Last.fm data hasn't been synced in 7+ days.
-// Fetches pipeline status on mount; stays hidden when data is fresh.
-import { useEffect, useState } from 'react'
-
-const BASE = '/api'
-const STALE_DAYS = 7
+// Uses shared pipeline state from ChatContext so banner and SyncTab don't diverge.
+import { useState } from 'react'
+import { useChatContext } from './ChatContext'
 
 export function StaleBanner() {
-  const [status,      setStatus]      = useState(null)   // null | { lastfm, lastfm_enrich }
-  const [dismissed,   setDismissed]   = useState(false)
-  const [syncState,   setSyncState]   = useState('idle') // idle | running | done | error
-  const [enrichState, setEnrichState] = useState('idle')
-
-  useEffect(() => {
-    fetch(`${BASE}/pipelines/status`)
-      .then(r => r.json())
-      .then(setStatus)
-      .catch(() => {})
-  }, [])
-
-  const sync = async () => {
-    setSyncState('running')
-    try {
-      await fetch(`${BASE}/pipelines/lastfm/sync`, { method: 'POST' })
-      setSyncState('done')
-    } catch {
-      setSyncState('error')
-    }
-  }
-
-  const enrich = async () => {
-    setEnrichState('running')
-    try {
-      await fetch(`${BASE}/pipelines/lastfm/enrich`, { method: 'POST' })
-      setEnrichState('done')
-    } catch {
-      setEnrichState('error')
-    }
-  }
+  const { pipelineStatus: status, syncState, enrichState, triggerSync, triggerEnrich } = useChatContext()
+  const [dismissed, setDismissed] = useState(false)
 
   if (!status || dismissed) return null
 
   const syncStale   = status.lastfm?.stale
-  const enrichStale = status.lastfm_enrich?.stale
+  const enrichStale = status.enrichment?.stale
   if (!syncStale && !enrichStale) return null
 
   const syncDays   = status.lastfm?.days_ago
-  const enrichDays = status.lastfm_enrich?.days_ago
+  const enrichDays = status.enrichment?.days_ago
 
-  // Build message
   let msg = ''
   if (syncStale && enrichStale) {
     msg = syncDays === null
@@ -70,7 +38,7 @@ export function StaleBanner() {
 
       {syncStale && (
         <button
-          onClick={sync}
+          onClick={triggerSync}
           disabled={syncState === 'running' || syncState === 'done'}
           className="shrink-0 px-3 py-1 rounded-lg bg-amber-800/50 hover:bg-amber-700/60 disabled:opacity-50 transition-colors font-medium"
         >
@@ -83,7 +51,7 @@ export function StaleBanner() {
 
       {enrichStale && (
         <button
-          onClick={enrich}
+          onClick={triggerEnrich}
           disabled={enrichState === 'running' || enrichState === 'done'}
           className="shrink-0 px-3 py-1 rounded-lg bg-amber-800/50 hover:bg-amber-700/60 disabled:opacity-50 transition-colors font-medium"
         >
