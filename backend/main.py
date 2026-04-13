@@ -390,26 +390,47 @@ def lyrics_snippets():
 
 @app.get("/pipelines/status")
 def pipelines_status():
-    """Return last sync time and staleness for each pipeline."""
+    """Return last sync time, staleness, and enrichment progress."""
     conn = db()
-    rows = conn.execute(
-        "SELECT pipeline_name, last_fetched_at FROM pipeline_state"
-    ).fetchall()
-    conn.close()
 
+    # Sync state timestamps
+    rows = conn.execute("SELECT pipeline_name, last_fetched_at FROM pipeline_state").fetchall()
     state = {r[0]: r[1] for r in rows}
     now = datetime.now(tz=timezone.utc)
 
-    def entry(name):
+    def sync_entry(name):
         ts = state.get(name)
         if ts is None:
             return {"last_fetched_at": None, "days_ago": None, "stale": True}
         days = (now - ts).total_seconds() / 86400
         return {"last_fetched_at": ts.isoformat(), "days_ago": round(days, 1), "stale": days > 7}
 
+    # Enrichment progress counts
+    total_artists = conn.execute("SELECT COUNT(DISTINCT artist) FROM raw_scrobbles").fetchone()[0]
+    total_tracks  = conn.execute("""
+        SELECT COUNT(*) FROM (
+            SELECT track, artist FROM raw_scrobbles
+            GROUP BY track, artist HAVING COUNT(*) >= 5
+        )
+    """).fetchone()[0]
+
+    done_artist_tags   = conn.execute("SELECT COUNT(DISTINCT artist_name) FROM artist_tags").fetchone()[0]
+    done_artist_similar = conn.execute("SELECT COUNT(DISTINCT artist_name) FROM artist_similar").fetchone()[0]
+    done_track_tags    = conn.execute("SELECT COUNT(DISTINCT track || artist) FROM track_tags").fetchone()[0]
+
+    conn.close()
+
+    def pct(done, total):
+        return round(done / total * 100, 1) if total else 0
+
     return {
-        "lastfm": entry("lastfm"),
-        "lastfm_enrich": entry("lastfm_enrich"),
+        "lastfm": sync_entry("lastfm"),
+        "enrichment": {
+            **sync_entry("lastfm_enrich"),
+            "artist_tags":    {"done": done_artist_tags,    "total": total_artists, "pct": pct(done_artist_tags,    total_artists)},
+            "artist_similar": {"done": done_artist_similar, "total": total_artists, "pct": pct(done_artist_similar, total_artists)},
+            "track_tags":     {"done": done_track_tags,     "total": total_tracks,  "pct": pct(done_track_tags,     total_tracks)},
+        },
     }
 
 
@@ -418,7 +439,8 @@ async def trigger_lastfm_sync():
     """Kick off a Last.fm sync in the background. Returns immediately."""
     async def run():
         import subprocess
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["python", "-m", "backend.pipelines.lastfm"],
             capture_output=True, text=True
         )
@@ -432,7 +454,8 @@ async def trigger_lastfm_enrich():
     """Kick off artist tag / similar artist / track tag enrichment in the background."""
     async def run():
         import subprocess
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["python", "-m", "backend.pipelines.lastfm", "enrich"],
             capture_output=True, text=True
         )

@@ -8,6 +8,7 @@ import { AgentChat } from './components/AgentChat'
 import { LyricsTape } from './components/LyricsTape'
 import { Vibes } from './components/Vibes'
 import { PlaylistCreator } from './components/PlaylistCreator'
+import { SyncTab } from './components/SyncTab'
 import { useLyrics } from './components/useLyrics'
 import { SyncButton } from './components/SyncButton'
 import { StaleBanner } from './components/StaleBanner'
@@ -20,12 +21,13 @@ const NAV = [
   { id: 'Playlist',  icon: '♫',  label: 'Playlist'  },
   { id: 'Chat',      icon: '✦',  label: 'Chat'       },
   { id: 'Vibes',     icon: '♪',  label: 'Vibes'      },
+  { id: 'Sync',      icon: '↻',  label: 'Sync'       },
 ]
 
 export default function App() {
   const [tab, setTab] = useState('Library')
   const [songs, setSongs] = useState([])
-  const lyrics = useLyrics()
+  const { tracks: lyrics } = useLyrics()
   const [editingSong, setEditingSong] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -130,9 +132,8 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="px-5 py-4 border-t border-zinc-800 flex flex-col gap-2">
+        <div className="px-5 py-4 border-t border-zinc-800">
           <p className="text-xs text-zinc-600">{songs.length} entries</p>
-          <SyncButton />
         </div>
       </aside>
 
@@ -204,6 +205,8 @@ export default function App() {
             <div className="max-w-lg">
               <SongForm onSave={handleAdd} songs={songs} />
             </div>
+          ) : activeTab === 'Sync' ? (
+            <SyncTab />
           ) : activeTab === 'Playlist' ? (
             <PlaylistCreator />
           ) : activeTab === 'Vibes' ? (

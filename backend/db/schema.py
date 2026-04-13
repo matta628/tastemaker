@@ -181,6 +181,16 @@ def create_schema():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS enrichment_skipped (
+            entity_type  VARCHAR NOT NULL,  -- 'artist' or 'track'
+            entity_name  VARCHAR NOT NULL,  -- artist name or "track||artist"
+            reason       VARCHAR,           -- e.g. 'no_data', 'max_retries'
+            skipped_at   TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (entity_type, entity_name)
+        )
+    """)
+
     # -------------------------------------------------------------------------
     # taste_tags — the cross-domain junction table
     # Maps both books and artists to a shared tag/genre namespace.

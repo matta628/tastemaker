@@ -12,7 +12,7 @@ export function PlaylistCreator() {
   const [playlist, setPlaylist]   = useState(null)      // { name, tracks, shortcuts_url }
   const [toolMsg, setToolMsg]     = useState('')
   const abortRef                  = useRef(null)
-  const lyrics                    = useLyrics()
+  const { tracks: lyrics }        = useLyrics()
 
   const submit = async () => {
     if (!prompt.trim() || status === 'loading') return
