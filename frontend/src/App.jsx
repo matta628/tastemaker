@@ -151,12 +151,12 @@ function AppInner() {
             <h1 className="text-xl font-semibold text-zinc-100 tracking-tight">🎸 Tastemaker</h1>
             <p className="text-xs text-zinc-500 mt-0.5">guitar log</p>
           </header>
-          <nav className="flex px-4 gap-1 border-b border-zinc-800 mt-2">
+          <nav className="flex px-4 gap-1 border-b border-zinc-800 mt-2 overflow-x-auto scrollbar-none">
             {NAV.map(({ id, label }) => (
               <button
                 key={id}
                 onClick={() => goTo(id)}
-                className={`relative text-sm px-4 py-2.5 font-medium transition-colors border-b-2 -mb-px ${
+                className={`relative shrink-0 text-sm px-4 py-2.5 font-medium transition-colors border-b-2 -mb-px ${
                   activeTab === id
                     ? 'border-violet-500 text-violet-400'
                     : 'border-transparent text-zinc-500 hover:text-zinc-300'

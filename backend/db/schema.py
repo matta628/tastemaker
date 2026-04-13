@@ -182,6 +182,18 @@ def create_schema():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS playlists (
+            playlist_id  VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            name         VARCHAR NOT NULL,
+            prompt       VARCHAR NOT NULL,
+            tracks       JSON    NOT NULL,   -- [{title, artist}, ...]
+            shortcuts_url VARCHAR NOT NULL,
+            created_at   TIMESTAMPTZ DEFAULT now(),
+            updated_at   TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS enrichment_skipped (
             entity_type  VARCHAR NOT NULL,  -- 'artist' or 'track'
             entity_name  VARCHAR NOT NULL,  -- artist name or "track||artist"

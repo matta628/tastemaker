@@ -475,51 +475,151 @@ class ChatRequest(BaseModel):
 
 class PlaylistRequest(BaseModel):
     prompt: str
+    playlist_id: str | None = None  # set when modifying an existing playlist
+
+
+# ---------------------------------------------------------------------------
+# Playlist CRUD
+# ---------------------------------------------------------------------------
+
+@app.get("/playlists")
+def list_playlists():
+    conn = db()
+    rows = conn.execute(
+        "SELECT playlist_id, name, prompt, tracks, shortcuts_url, created_at, updated_at "
+        "FROM playlists ORDER BY updated_at DESC"
+    ).fetchall()
+    conn.close()
+    cols = ["playlist_id", "name", "prompt", "tracks", "shortcuts_url", "created_at", "updated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+@app.delete("/playlists/{playlist_id}", status_code=204)
+def delete_playlist(playlist_id: str):
+    conn = db()
+    result = conn.execute("DELETE FROM playlists WHERE playlist_id = ?", [playlist_id])
+    conn.close()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Playlist not found")
 
 
 @app.post("/agent/playlist")
 async def agent_playlist(body: PlaylistRequest):
     """
-    Generate a playlist from a natural language prompt.
-    Streams SSE like /agent/chat. The final tool_result event contains
-    the playlist JSON (name, tracks, shortcuts_url).
+    Generate or modify a playlist from a natural language prompt.
+    Streams SSE. Emits a 'playlist' event with the final JSON, then auto-saves to DB.
     """
     from backend.agent.graph import get_agent
 
     agent = get_agent()
     config = {"configurable": {"thread_id": f"playlist-{id(body)}"}}
-    system_msg = (
-        "The user wants a playlist. Query their personal data first, "
-        "then call build_playlist with the result. "
-        f"Their request: {body.prompt}"
-    )
+
+    # Build the prompt — include existing playlist context when modifying
+    if body.playlist_id:
+        conn = db()
+        row = conn.execute(
+            "SELECT name, tracks FROM playlists WHERE playlist_id = ?",
+            [body.playlist_id]
+        ).fetchone()
+        conn.close()
+        if row:
+            existing = f'Existing playlist "{row[0]}" has tracks: {row[1]}. '
+            system_msg = (
+                f"{existing}The user wants to modify it: {body.prompt}. "
+                "Query their personal data as needed, then call build_playlist with the updated track list."
+            )
+        else:
+            system_msg = (
+                f"The user wants a playlist. Query their personal data first, "
+                f"then call build_playlist with the result. Their request: {body.prompt}"
+            )
+    else:
+        system_msg = (
+            "The user wants a playlist. Query their personal data first, "
+            f"then call build_playlist with the result. Their request: {body.prompt}"
+        )
+
+    print(f"[playlist] Starting: {body.prompt!r}")
 
     async def stream():
-        async for event in agent.astream_events(
-            {"messages": [{"role": "user", "content": system_msg}]},
-            config=config,
-            version="v2",
-        ):
-            kind = event["event"]
-            if kind == "on_chat_model_stream":
-                chunk = event["data"]["chunk"]
-                text = None
-                if chunk.content and isinstance(chunk.content, list):
-                    for part in chunk.content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text = part["text"]
-                elif isinstance(chunk.content, str) and chunk.content:
-                    text = chunk.content
-                if text:
-                    encoded = "\n".join(f"data: {line}" for line in text.split("\n"))
-                    yield f"{encoded}\n\n"
-            elif kind == "on_tool_start":
-                yield f"event: tool_start\ndata: {event.get('name', 'tool')}\n\n"
-            elif kind == "on_tool_end" and event.get("name") == "build_playlist":
-                # Emit the playlist JSON so the frontend can render the track list
-                yield f"event: playlist\ndata: {event['data']['output']}\n\n"
-            elif kind == "on_tool_end":
-                yield f"event: tool_end\ndata: done\n\n"
+        try:
+            async for event in agent.astream_events(
+                {"messages": [{"role": "user", "content": system_msg}]},
+                config=config,
+                version="v2",
+            ):
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    text = None
+                    if chunk.content and isinstance(chunk.content, list):
+                        for part in chunk.content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text = part["text"]
+                    elif isinstance(chunk.content, str) and chunk.content:
+                        text = chunk.content
+                    if text:
+                        encoded = "\n".join(f"data: {line}" for line in text.split("\n"))
+                        yield f"{encoded}\n\n"
+
+                elif kind == "on_tool_start":
+                    tool = event.get("name", "tool")
+                    print(f"[playlist] Tool start: {tool}")
+                    yield f"event: tool_start\ndata: {tool}\n\n"
+
+                elif kind == "on_tool_end":
+                    tool = event.get("name", "")
+                    print(f"[playlist] Tool end: {tool}")
+                    if tool == "build_playlist":
+                        raw = event["data"].get("output", "")
+                        # output may be a double-encoded JSON string — unwrap if needed
+                        try:
+                            playlist_data = json.loads(raw) if isinstance(raw, str) else raw
+                            if isinstance(playlist_data, str):
+                                playlist_data = json.loads(playlist_data)
+                        except Exception as e:
+                            print(f"[playlist] Failed to parse build_playlist output: {e} — raw: {raw!r}")
+                            yield f"event: error\ndata: Failed to parse playlist output\n\n"
+                            return
+
+                        print(f"[playlist] Built: {playlist_data.get('name')!r} with {len(playlist_data.get('tracks', []))} tracks")
+
+                        # Auto-save to DB
+                        try:
+                            now = datetime.now(tz=timezone.utc)
+                            pid = body.playlist_id
+                            conn = db()
+                            if pid:
+                                conn.execute(
+                                    "UPDATE playlists SET name=?, prompt=?, tracks=?, shortcuts_url=?, updated_at=? "
+                                    "WHERE playlist_id=?",
+                                    [playlist_data["name"], body.prompt,
+                                     json.dumps(playlist_data["tracks"]),
+                                     playlist_data["shortcuts_url"], now, pid]
+                                )
+                            else:
+                                pid = str(uuid4())
+                                conn.execute(
+                                    "INSERT INTO playlists (playlist_id, name, prompt, tracks, shortcuts_url, created_at, updated_at) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                    [pid, playlist_data["name"], body.prompt,
+                                     json.dumps(playlist_data["tracks"]),
+                                     playlist_data["shortcuts_url"], now, now]
+                                )
+                            conn.close()
+                            playlist_data["playlist_id"] = pid
+                            print(f"[playlist] Saved to DB: {pid}")
+                        except Exception as e:
+                            print(f"[playlist] DB save failed: {e}")
+
+                        yield f"event: playlist\ndata: {json.dumps(playlist_data)}\n\n"
+                    else:
+                        yield f"event: tool_end\ndata: done\n\n"
+
+        except Exception as e:
+            print(f"[playlist] Stream error: {e}")
+            yield f"event: error\ndata: {str(e)}\n\n"
+
         yield "event: done\ndata: done\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
