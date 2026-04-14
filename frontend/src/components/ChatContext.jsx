@@ -61,6 +61,8 @@ export function ChatProvider({ children }) {
 
     plAbortRef.current = new AbortController()
 
+    let gotPlaylist = false
+
     try {
       const body = { prompt: prompt.trim() }
       if (modifying) body.playlist_id = modifying.playlist_id
@@ -80,7 +82,6 @@ export function ChatProvider({ children }) {
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
       let   buffer  = ''
-      let   gotPlaylist = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -132,6 +133,10 @@ export function ChatProvider({ children }) {
     } catch (e) {
       if (e.name === 'AbortError') {
         setPlStatus('idle')
+      } else if (gotPlaylist) {
+        // Stream dropped after playlist was already received and saved — treat as success
+        setPlStatus('done')
+        fetchSaved()
       } else {
         setPlErrorMsg(e.message)
         setPlStatus('error')

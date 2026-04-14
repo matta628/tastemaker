@@ -643,11 +643,11 @@ class PlaylistRequest(BaseModel):
 def list_playlists():
     conn = db()
     rows = conn.execute(
-        "SELECT playlist_id, name, prompt, tracks, shortcuts_url, created_at, updated_at "
+        "SELECT playlist_id, name, prompt, tracks, shortcuts_url, thoughts, queries, created_at, updated_at "
         "FROM playlists ORDER BY updated_at DESC"
     ).fetchall()
     conn.close()
-    cols = ["playlist_id", "name", "prompt", "tracks", "shortcuts_url", "created_at", "updated_at"]
+    cols = ["playlist_id", "name", "prompt", "tracks", "shortcuts_url", "thoughts", "queries", "created_at", "updated_at"]
     return [dict(zip(cols, r)) for r in rows]
 
 
