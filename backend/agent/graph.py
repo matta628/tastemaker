@@ -2,6 +2,7 @@
 LangGraph agent — Claude + tool loop.
 """
 import os
+import aiosqlite
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -28,7 +29,8 @@ async def get_agent():
         )
         # AsyncSqliteSaver is required for FastAPI's async context.
         # Persists conversation threads across server restarts.
-        _checkpointer = AsyncSqliteSaver.from_conn_string("/app/checkpoints.db")
+        _conn = await aiosqlite.connect("/app/checkpoints.db")
+        _checkpointer = AsyncSqliteSaver(_conn)
         _agent = create_react_agent(
             model=_model,
             tools=[query_database, build_playlist, track_similar_lookup, artist_top_tracks],
