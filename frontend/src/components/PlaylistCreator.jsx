@@ -131,14 +131,20 @@ export function PlaylistCreator() {
   } = useChatContext()
 
   const { tracks: lyrics } = useLyrics()
+  const [detailTab, setDetailTab] = useState('reasoning')
 
   useEffect(() => { fetchSaved() }, [fetchSaved])
 
   const handleOpen = (url) => { window.location.href = url }
 
   const handleModify = (playlist) => {
-    setPlModifying(playlist)
-    setPlPrompt('')
+    if (plModifying?.playlist_id === playlist.playlist_id) {
+      setPlModifying(null)
+      setPlPrompt('')
+    } else {
+      setPlModifying(playlist)
+      setPlPrompt('')
+    }
   }
 
   const handleDelete = async (id) => {
@@ -255,6 +261,46 @@ export function PlaylistCreator() {
               </div>
             </div>
           )}
+
+          {/* ── Reasoning / SQL (desktop only, shown in modify mode) ── */}
+          {plModifying && (() => {
+            const thoughts = plModifying.thoughts
+            const queries  = parseQueries(plModifying.queries)
+            if (!thoughts && queries.length === 0) return null
+            const tabs = [
+              thoughts        && { id: 'reasoning', label: 'Reasoning' },
+              queries.length  && { id: 'sql',       label: `SQL (${queries.length})` },
+            ].filter(Boolean)
+            const active = tabs.find(t => t.id === detailTab) ? detailTab : tabs[0].id
+            return (
+              <div className="border border-zinc-800 rounded-xl overflow-hidden">
+                <div className="flex border-b border-zinc-800">
+                  {tabs.map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setDetailTab(t.id)}
+                      className={`px-4 py-2 text-xs font-medium transition-colors ${
+                        active === t.id
+                          ? 'text-violet-400 bg-zinc-900'
+                          : 'text-zinc-500 hover:text-zinc-300 bg-zinc-900/50'
+                      }`}
+                    >{t.label}</button>
+                  ))}
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {active === 'reasoning' && thoughts && (
+                    <p className="px-4 py-3 text-xs text-zinc-500 whitespace-pre-wrap leading-relaxed">{thoughts}</p>
+                  )}
+                  {active === 'sql' && queries.map((q, i) => (
+                    <div key={i} className="px-4 py-3 border-b border-zinc-800/60 last:border-0">
+                      {queries.length > 1 && <p className="text-xs text-zinc-600 mb-1">Query {i + 1}</p>}
+                      <pre className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{q}</pre>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
         </div>
       </div>
