@@ -11,6 +11,8 @@ services:
       - ./tastemaker.db:/app/tastemaker.db
       # Lyrics cache persists across rebuilds
       - ./lyrics_cache.json:/app/lyrics_cache.json
+      # LangGraph conversation checkpoints — survives container restarts
+      - ./checkpoints.db:/app/checkpoints.db
       # Secrets mounted at runtime — never baked into the image
       - ./.env.secret:/app/.env.secret:ro
     env_file:

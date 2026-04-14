@@ -220,7 +220,7 @@ function AppInner() {
           ) : activeTab === 'Vibes' ? (
             <Vibes />
           ) : activeTab === 'Chat' ? (
-            <AgentChat />
+            <AgentChat onGoToPlaylist={() => goTo('Playlist')} />
           ) : activeTab === 'edit' && editingSong ? (
             <div className="max-w-lg">
               <SongForm

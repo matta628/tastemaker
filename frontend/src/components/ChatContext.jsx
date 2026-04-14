@@ -2,9 +2,6 @@ import { createContext, useContext, useRef, useState, useCallback, useEffect } f
 
 const ChatContext = createContext(null)
 
-// Stable thread ID for the session — persists across tab switches
-const THREAD_ID = Math.random().toString(36).slice(2) + Date.now().toString(36)
-
 const BASE = '/api'
 
 function parseSSEChunk(chunk) {
@@ -26,14 +23,165 @@ function parseSSEChunk(chunk) {
 
 export function ChatProvider({ children }) {
   // ── Chat state ─────────────────────────────────────────────────────────────
-  const [messages,  setMessages]  = useState([])
-  const [streaming, setStreaming] = useState(false)
-  const bufferRef  = useRef('')
-  const abortRef   = useRef(null)
+  const [messages,      setMessages]      = useState([])
+  const [streaming,     setStreaming]      = useState(false)
+  const [activeChatId,  setActiveChatId]  = useState(null)
+  const [chats,         setChats]         = useState([])
+  const bufferRef       = useRef('')
+  const abortRef        = useRef(null)
+  // Ref so send() closure always sees the latest activeChatId without re-binding
+  const activeChatIdRef = useRef(null)
+  useEffect(() => { activeChatIdRef.current = activeChatId }, [activeChatId])
+
+  // ── Chat CRUD ──────────────────────────────────────────────────────────────
+  const fetchChats = useCallback(async () => {
+    try {
+      const r = await fetch(`${BASE}/chats`)
+      const data = await r.json()
+      setChats(data)
+    } catch {}
+  }, [])
+
+  useEffect(() => { fetchChats() }, [fetchChats])
+
+  const newChat = useCallback(() => {
+    setMessages([])
+    setActiveChatId(null)
+    activeChatIdRef.current = null
+    bufferRef.current = ''
+  }, [])
+
+  const loadChat = useCallback(async (chatId) => {
+    try {
+      const r = await fetch(`${BASE}/chats/${chatId}/messages`)
+      const msgs = await r.json()
+      setMessages(msgs)
+      setActiveChatId(chatId)
+      activeChatIdRef.current = chatId
+    } catch {}
+  }, [])
+
+  const deleteChat = useCallback(async (chatId) => {
+    if (!window.confirm('Delete this chat?')) return
+    await fetch(`${BASE}/chats/${chatId}`, { method: 'DELETE' })
+    if (activeChatIdRef.current === chatId) {
+      setMessages([])
+      setActiveChatId(null)
+      activeChatIdRef.current = null
+    }
+    fetchChats()
+  }, [fetchChats])
+
+  // ── Send + stream ──────────────────────────────────────────────────────────
+  const send = useCallback(async (text) => {
+    if (!text.trim() || streaming) return
+
+    abortRef.current?.abort()
+    abortRef.current = new AbortController()
+    setStreaming(true)
+    bufferRef.current = ''
+
+    setMessages(prev => [...prev,
+      { role: 'user',      content: text },
+      { role: 'assistant', content: null },   // null = TrackLoader while thinking
+    ])
+
+    // Create a new chat on the first message of a session
+    let chatId = activeChatIdRef.current
+    if (!chatId) {
+      try {
+        const title = text.length > 60 ? text.slice(0, 60) + '…' : text
+        const r = await fetch(`${BASE}/chats`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ title }),
+        })
+        const data = await r.json()
+        chatId = data.chat_id
+        setActiveChatId(chatId)
+        activeChatIdRef.current = chatId
+        fetchChats()
+      } catch {}
+    }
+
+    try {
+      const res = await fetch('/api/agent/chat', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: text, thread_id: chatId || 'default' }),
+        signal:  abortRef.current.signal,
+      })
+
+      if (!res.ok) {
+        const err = await res.text().catch(() => res.statusText)
+        throw new Error(`${res.status}: ${err}`)
+      }
+
+      const reader  = res.body.getReader()
+      const decoder = new TextDecoder()
+      let rawBuffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        rawBuffer += decoder.decode(value, { stream: true })
+
+        const parts = rawBuffer.split(/\n\n(?=(?:event:|data:|:))/)
+        rawBuffer = parts.pop() ?? ''
+
+        for (const part of parts) {
+          // Skip SSE keep-alive comments (": keepalive")
+          if (part.trimStart().startsWith(':')) continue
+          for (const { event, data } of parseSSEChunk(part + '\n\n')) {
+            if (event === 'message') {
+              bufferRef.current += data
+            }
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        if (!bufferRef.current) bufferRef.current = '_Cancelled._'
+        else bufferRef.current += '\n\n_Stopped._'
+      } else {
+        bufferRef.current = bufferRef.current
+          ? bufferRef.current + '\n\n_(response cut short)_'
+          : `Error: ${e.message || 'could not reach the agent.'}`
+      }
+    } finally {
+      const finalContent = bufferRef.current || 'No response.'
+      setMessages(prev => {
+        const msgs = [...prev]
+        msgs[msgs.length - 1] = { role: 'assistant', content: finalContent }
+        return msgs
+      })
+      setStreaming(false)
+      bufferRef.current = ''
+
+      // Persist the exchange to DB
+      if (chatId) {
+        try {
+          await fetch(`${BASE}/chats/${chatId}/messages`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify([
+              { role: 'user',      content: text },
+              { role: 'assistant', content: finalContent },
+            ]),
+          })
+          fetchChats()
+        } catch {}
+      }
+    }
+  }, [streaming, fetchChats])
+
+  const cancel = useCallback(() => {
+    abortRef.current?.abort()
+  }, [])
 
   // ── Playlist state ─────────────────────────────────────────────────────────
   const [plPrompt,    setPlPrompt]    = useState('')
-  const [plStatus,    setPlStatus]    = useState('idle')   // idle | loading | done | error
+  const [plStatus,    setPlStatus]    = useState('idle')
   const [plThoughts,  setPlThoughts]  = useState('')
   const [plPlaylist,  setPlPlaylist]  = useState(null)
   const [plToolMsg,   setPlToolMsg]   = useState('')
@@ -68,10 +216,10 @@ export function ChatProvider({ children }) {
       if (modifying) body.playlist_id = modifying.playlist_id
 
       const res = await fetch(`${BASE}/agent/playlist`, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: plAbortRef.current.signal,
+        body:    JSON.stringify(body),
+        signal:  plAbortRef.current.signal,
       })
 
       if (!res.ok) {
@@ -134,7 +282,6 @@ export function ChatProvider({ children }) {
       if (e.name === 'AbortError') {
         setPlStatus('idle')
       } else if (gotPlaylist) {
-        // Stream dropped after playlist was already received and saved — treat as success
         setPlStatus('done')
         fetchSaved()
       } else {
@@ -161,20 +308,19 @@ export function ChatProvider({ children }) {
 
   useEffect(() => { fetchSaved() }, [fetchSaved])
 
-  // ── Pipeline (sync / enrich) state ────────────────────────────────────────
+  // ── Pipeline state ─────────────────────────────────────────────────────────
   const POLL_MS = 8000
   const [pipelineStatus, setPipelineStatus] = useState(null)
-  const [syncState,      setSyncState]      = useState('idle')   // idle | running | done | error
-  const [enrichState,    setEnrichState]    = useState('idle')   // idle | running | done | error
+  const [syncState,      setSyncState]      = useState('idle')
+  const [enrichState,    setEnrichState]    = useState('idle')
   const [enrichStuck,    setEnrichStuck]    = useState(false)
-  const [goodreadsState, setGoodreadsState] = useState('idle')   // idle | running | done | error
-  const [guitarState,    setGuitarState]    = useState('idle')   // idle | running | done | error
-  const enrichStateRef = useRef('idle')
-  const prevPctsRef    = useRef(null)
-  const stuckCountRef  = useRef(0)
+  const [goodreadsState, setGoodreadsState] = useState('idle')
+  const [guitarState,    setGuitarState]    = useState('idle')
+  const enrichStateRef  = useRef('idle')
+  const prevPctsRef     = useRef(null)
+  const stuckCountRef   = useRef(0)
   const pipelinePollRef = useRef(null)
 
-  // Keep ref in sync so fetchPipelineStatus closure doesn't need enrichState as dep
   useEffect(() => { enrichStateRef.current = enrichState }, [enrichState])
 
   const fetchPipelineStatus = useCallback(async () => {
@@ -183,8 +329,6 @@ export function ChatProvider({ children }) {
       const data = await r.json()
       setPipelineStatus(data)
 
-      // On first load, detect if a process is already running on the server
-      // (e.g. page was refreshed while enrichment was in progress)
       if (enrichStateRef.current === 'idle' && data.enrichment?.process_running) {
         setEnrichState('running')
         return
@@ -203,11 +347,9 @@ export function ChatProvider({ children }) {
         setGuitarState(prev => prev === 'running' ? (data.guitar_import?.last_error ? 'error' : 'done') : prev)
       }
 
-      // Detect enrichment finishing/failing
       if (enrichStateRef.current === 'running' && data.enrichment) {
         const e = data.enrichment
         if (!e.process_running) {
-          // Process stopped — check outcome
           if (!e.last_error) {
             setEnrichState('done')
           } else if (e.last_error) {
@@ -221,21 +363,19 @@ export function ChatProvider({ children }) {
           return
         }
 
-        // Still running — stale-progress detection
         const curPcts = [e.artist_tags.pct, e.artist_similar.pct, e.track_tags.pct].join(',')
         if (prevPctsRef.current === curPcts) {
           stuckCountRef.current += 1
-          if (stuckCountRef.current >= 5) setEnrichStuck(true)   // 40 s with no movement
+          if (stuckCountRef.current >= 5) setEnrichStuck(true)
         } else {
           stuckCountRef.current = 0
           setEnrichStuck(false)
         }
         prevPctsRef.current = curPcts
       }
-    } catch { /* network error — ignore, keep retrying */ }
-  }, []) // no state deps — uses refs
+    } catch {}
+  }, [])
 
-  // Start/stop polling based on running states
   useEffect(() => {
     const running = syncState === 'running' || enrichState === 'running' ||
                     goodreadsState === 'running' || guitarState === 'running'
@@ -253,7 +393,6 @@ export function ChatProvider({ children }) {
     }
   }, [syncState, enrichState, goodreadsState, guitarState, fetchPipelineStatus])
 
-  // Initial fetch on mount
   useEffect(() => { fetchPipelineStatus() }, [fetchPipelineStatus])
 
   const triggerSync = useCallback(async () => {
@@ -263,8 +402,7 @@ export function ChatProvider({ children }) {
       const res = await fetch(`${BASE}/pipelines/lastfm/sync`, { method: 'POST' })
       if (!res.ok) throw new Error()
       const body = await res.json()
-      if (body.status === 'already_running') return // server says it's already going
-      // Sync finishes in ~seconds; poll will pick up the new timestamp
+      if (body.status === 'already_running') return
     } catch {
       setSyncState('error')
       setTimeout(() => setSyncState('idle'), 4000)
@@ -298,10 +436,7 @@ export function ChatProvider({ children }) {
       const res = await fetch(`${BASE}/pipelines/goodreads/upload`, { method: 'POST', body: form })
       if (!res.ok) throw new Error()
       const body = await res.json()
-      if (body.status === 'already_running') {
-        setGoodreadsState('idle')
-      }
-      // Status will flip back to idle/done via polling once backend finishes
+      if (body.status === 'already_running') setGoodreadsState('idle')
     } catch {
       setGoodreadsState('error')
       setTimeout(() => setGoodreadsState('idle'), 5000)
@@ -317,91 +452,18 @@ export function ChatProvider({ children }) {
       const res = await fetch(`${BASE}/pipelines/guitar/upload`, { method: 'POST', body: form })
       if (!res.ok) throw new Error()
       const body = await res.json()
-      if (body.status === 'already_running') {
-        setGuitarState('idle')
-      }
+      if (body.status === 'already_running') setGuitarState('idle')
     } catch {
       setGuitarState('error')
       setTimeout(() => setGuitarState('idle'), 5000)
     }
   }, [guitarState])
 
-  const send = async (text) => {
-    if (!text.trim() || streaming) return
-
-    // Cancel any in-flight request before starting a new one
-    abortRef.current?.abort()
-    abortRef.current = new AbortController()
-
-    setStreaming(true)
-    bufferRef.current = ''
-
-    setMessages(prev => [...prev,
-      { role: 'user',      content: text },
-      { role: 'assistant', content: null },  // null = still thinking
-    ])
-
-    try {
-      const res = await fetch('/api/agent/chat', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ message: text, thread_id: THREAD_ID }),
-        signal:  abortRef.current.signal,
-      })
-
-      if (!res.ok) {
-        const err = await res.text().catch(() => res.statusText)
-        throw new Error(`${res.status}: ${err}`)
-      }
-
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let rawBuffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        rawBuffer += decoder.decode(value, { stream: true })
-
-        const parts = rawBuffer.split(/\n\n(?=(?:event:|data:))/)
-        rawBuffer = parts.pop() ?? ''
-
-        for (const part of parts) {
-          for (const { event, data } of parseSSEChunk(part + '\n\n')) {
-            if (event === 'message') {
-              bufferRef.current += data
-            }
-          }
-        }
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        // User cancelled — keep whatever arrived so far, append a note
-        if (!bufferRef.current) bufferRef.current = '_Cancelled._'
-        else bufferRef.current += '\n\n_Stopped._'
-      } else {
-        bufferRef.current = bufferRef.current || `Error: ${e.message || 'could not reach the agent.'}`
-      }
-    } finally {
-      const finalContent = bufferRef.current || 'No response.'
-      setMessages(prev => {
-        const msgs = [...prev]
-        msgs[msgs.length - 1] = { role: 'assistant', content: finalContent }
-        return msgs
-      })
-      setStreaming(false)
-      bufferRef.current = ''
-    }
-  }
-
-  const cancel = () => {
-    abortRef.current?.abort()
-  }
-
   return (
     <ChatContext.Provider value={{
       // chat
       messages, streaming, send, cancel,
+      chats, activeChatId, newChat, loadChat, deleteChat, fetchChats,
       // playlist
       plPrompt, plStatus, plThoughts, plPlaylist, plToolMsg, plErrorMsg,
       plSaved, plModifying, setPlModifying, setPlPrompt,

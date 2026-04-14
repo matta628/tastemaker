@@ -227,6 +227,29 @@ def create_schema():
         )
     """)
 
+    # -------------------------------------------------------------------------
+    # Chat persistence — stores agent chat sessions and their messages
+    # -------------------------------------------------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chats (
+            chat_id    VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            title      VARCHAR NOT NULL,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            updated_at TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            message_id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            chat_id    VARCHAR NOT NULL,
+            role       VARCHAR NOT NULL CHECK (role IN ('user', 'assistant')),
+            content    TEXT NOT NULL,
+            seq        INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
     conn.close()
     print(f"Schema created at {DB_PATH}")
 

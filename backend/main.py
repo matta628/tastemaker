@@ -630,6 +630,81 @@ class ChatRequest(BaseModel):
     thread_id: str = "default"
 
 
+# ---------------------------------------------------------------------------
+# Chat CRUD
+# ---------------------------------------------------------------------------
+
+class ChatCreate(BaseModel):
+    title: str
+
+
+class SaveMessagesRequest(BaseModel):
+    messages: list[dict]
+
+
+@app.get("/chats")
+def list_chats():
+    conn = db()
+    rows = conn.execute(
+        "SELECT chat_id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC LIMIT 50"
+    ).fetchall()
+    conn.close()
+    cols = ["chat_id", "title", "created_at", "updated_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+@app.post("/chats", status_code=201)
+def create_chat(body: ChatCreate):
+    chat_id = str(uuid4())
+    now = datetime.now(tz=timezone.utc)
+    conn = db()
+    conn.execute(
+        "INSERT INTO chats (chat_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        [chat_id, body.title, now, now]
+    )
+    conn.close()
+    return {"chat_id": chat_id, "title": body.title, "created_at": now.isoformat()}
+
+
+@app.get("/chats/{chat_id}/messages")
+def get_chat_messages(chat_id: str):
+    conn = db()
+    rows = conn.execute(
+        "SELECT role, content FROM chat_messages WHERE chat_id = ? ORDER BY seq ASC, created_at ASC",
+        [chat_id]
+    ).fetchall()
+    conn.close()
+    return [{"role": r[0], "content": r[1]} for r in rows]
+
+
+@app.post("/chats/{chat_id}/messages", status_code=201)
+def save_chat_messages(chat_id: str, body: SaveMessagesRequest):
+    conn = db()
+    max_seq_row = conn.execute(
+        "SELECT COALESCE(MAX(seq), -1) FROM chat_messages WHERE chat_id = ?", [chat_id]
+    ).fetchone()
+    max_seq = max_seq_row[0] if max_seq_row else -1
+    now = datetime.now(tz=timezone.utc)
+    for i, msg in enumerate(body.messages):
+        conn.execute(
+            "INSERT INTO chat_messages (message_id, chat_id, role, content, seq, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            [str(uuid4()), chat_id, msg["role"], msg["content"], max_seq + 1 + i, now]
+        )
+    conn.execute("UPDATE chats SET updated_at = ? WHERE chat_id = ?", [now, chat_id])
+    conn.close()
+    return {"saved": len(body.messages)}
+
+
+@app.delete("/chats/{chat_id}", status_code=204)
+def delete_chat(chat_id: str):
+    conn = db()
+    conn.execute("DELETE FROM chat_messages WHERE chat_id = ?", [chat_id])
+    result = conn.execute("DELETE FROM chats WHERE chat_id = ?", [chat_id])
+    conn.close()
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+
 class PlaylistRequest(BaseModel):
     prompt: str
     playlist_id: str | None = None  # set when modifying an existing playlist
@@ -823,32 +898,45 @@ async def agent_chat(body: ChatRequest):
     config = {"configurable": {"thread_id": body.thread_id}}
 
     async def stream():
-        async for event in agent.astream_events(
+        # Wrap astream_events with keep-alive: if a tool call takes >25s with no
+        # event, emit an SSE comment to prevent mobile browsers from dropping the
+        # connection. SSE comments (": ...") are ignored by the client.
+        gen = agent.astream_events(
             {"messages": [{"role": "user", "content": body.message}]},
             config=config,
             version="v2",
-        ):
-            kind = event["event"]
-            # Stream text tokens as they arrive
-            if kind == "on_chat_model_stream":
-                chunk = event["data"]["chunk"]
-                text = None
-                if chunk.content and isinstance(chunk.content, list):
-                    for part in chunk.content:
-                        if isinstance(part, dict) and part.get("type") == "text":
-                            text = part["text"]
-                elif isinstance(chunk.content, str) and chunk.content:
-                    text = chunk.content
-                if text:
-                    # SSE spec: newlines in data must be split into multiple data: lines
-                    encoded = "\n".join(f"data: {line}" for line in text.split("\n"))
-                    yield f"{encoded}\n\n"
-            # Signal tool calls so the UI can show "Querying database..."
-            elif kind == "on_tool_start":
-                tool_name = event.get("name", "tool")
-                yield f"event: tool_start\ndata: {tool_name}\n\n"
-            elif kind == "on_tool_end":
-                yield f"event: tool_end\ndata: done\n\n"
+        )
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(gen.__anext__(), timeout=25.0)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+
+                kind = event["event"]
+                if kind == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    text = None
+                    if chunk.content and isinstance(chunk.content, list):
+                        for part in chunk.content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text = part["text"]
+                    elif isinstance(chunk.content, str) and chunk.content:
+                        text = chunk.content
+                    if text:
+                        encoded = "\n".join(f"data: {line}" for line in text.split("\n"))
+                        yield f"{encoded}\n\n"
+                elif kind == "on_tool_start":
+                    tool_name = event.get("name", "tool")
+                    yield f"event: tool_start\ndata: {tool_name}\n\n"
+                elif kind == "on_tool_end":
+                    yield f"event: tool_end\ndata: done\n\n"
+        except Exception as e:
+            print(f"[chat] Stream error: {e}")
+            yield f"event: error\ndata: {str(e)}\n\n"
         yield "event: done\ndata: done\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
