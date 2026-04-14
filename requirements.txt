@@ -2,6 +2,7 @@ dbt-duckdb==1.10.1
 fastapi==0.111.0
 uvicorn==0.30.1
 python-dotenv==1.0.1
+python-multipart==0.0.9
 requests==2.32.3
 pydantic==2.7.4
 langchain-anthropic==0.3.4
@@ -10,3 +11,4 @@ langgraph==0.3.31
 tabulate==0.9.0
 numpy==2.2.4
 pandas==2.2.3
+beautifulsoup4==4.12.3

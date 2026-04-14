@@ -162,6 +162,8 @@ export function ChatProvider({ children }) {
   const [syncState,      setSyncState]      = useState('idle')   // idle | running | done | error
   const [enrichState,    setEnrichState]    = useState('idle')   // idle | running | done | error
   const [enrichStuck,    setEnrichStuck]    = useState(false)
+  const [goodreadsState, setGoodreadsState] = useState('idle')   // idle | running | done | error
+  const [guitarState,    setGuitarState]    = useState('idle')   // idle | running | done | error
   const enrichStateRef = useRef('idle')
   const prevPctsRef    = useRef(null)
   const stuckCountRef  = useRef(0)
@@ -184,6 +186,16 @@ export function ChatProvider({ children }) {
       }
       if (enrichStateRef.current === 'idle' && data.lastfm?.process_running) {
         setSyncState('running')
+      }
+      if (data.goodreads?.process_running) {
+        setGoodreadsState(prev => prev === 'idle' ? 'running' : prev)
+      } else {
+        setGoodreadsState(prev => prev === 'running' ? (data.goodreads?.last_error ? 'error' : 'done') : prev)
+      }
+      if (data.guitar_import?.process_running) {
+        setGuitarState(prev => prev === 'idle' ? 'running' : prev)
+      } else {
+        setGuitarState(prev => prev === 'running' ? (data.guitar_import?.last_error ? 'error' : 'done') : prev)
       }
 
       // Detect enrichment finishing/failing
@@ -220,7 +232,8 @@ export function ChatProvider({ children }) {
 
   // Start/stop polling based on running states
   useEffect(() => {
-    const running = syncState === 'running' || enrichState === 'running'
+    const running = syncState === 'running' || enrichState === 'running' ||
+                    goodreadsState === 'running' || guitarState === 'running'
     if (running) {
       if (!pipelinePollRef.current) {
         pipelinePollRef.current = setInterval(fetchPipelineStatus, POLL_MS)
@@ -233,7 +246,7 @@ export function ChatProvider({ children }) {
       clearInterval(pipelinePollRef.current)
       pipelinePollRef.current = null
     }
-  }, [syncState, enrichState, fetchPipelineStatus])
+  }, [syncState, enrichState, goodreadsState, guitarState, fetchPipelineStatus])
 
   // Initial fetch on mount
   useEffect(() => { fetchPipelineStatus() }, [fetchPipelineStatus])
@@ -270,6 +283,43 @@ export function ChatProvider({ children }) {
       setTimeout(() => setEnrichState('idle'), 4000)
     }
   }, [enrichState])
+
+  const uploadGoodreads = useCallback(async (file) => {
+    if (goodreadsState === 'running') return
+    setGoodreadsState('running')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`${BASE}/pipelines/goodreads/upload`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error()
+      const body = await res.json()
+      if (body.status === 'already_running') {
+        setGoodreadsState('idle')
+      }
+      // Status will flip back to idle/done via polling once backend finishes
+    } catch {
+      setGoodreadsState('error')
+      setTimeout(() => setGoodreadsState('idle'), 5000)
+    }
+  }, [goodreadsState])
+
+  const uploadGuitar = useCallback(async (file) => {
+    if (guitarState === 'running') return
+    setGuitarState('running')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch(`${BASE}/pipelines/guitar/upload`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error()
+      const body = await res.json()
+      if (body.status === 'already_running') {
+        setGuitarState('idle')
+      }
+    } catch {
+      setGuitarState('error')
+      setTimeout(() => setGuitarState('idle'), 5000)
+    }
+  }, [guitarState])
 
   const send = async (text) => {
     if (!text.trim() || streaming) return
@@ -354,6 +404,7 @@ export function ChatProvider({ children }) {
       // pipeline
       pipelineStatus, syncState, enrichState, enrichStuck,
       triggerSync, triggerEnrich, fetchPipelineStatus,
+      goodreadsState, guitarState, uploadGoodreads, uploadGuitar,
     }}>
       {children}
     </ChatContext.Provider>

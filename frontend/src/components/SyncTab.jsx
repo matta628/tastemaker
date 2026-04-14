@@ -1,4 +1,5 @@
 // Sync tab — pure view; all state lives in ChatContext so it persists across tab switches.
+import { useRef } from 'react'
 import { useChatContext } from './ChatContext'
 
 function ProgressBar({ pct }) {
@@ -25,11 +26,35 @@ function formatAge(daysAgo) {
   return `${Math.floor(daysAgo)} days ago`
 }
 
+function UploadButton({ label, accept, state, onFile, running }) {
+  const inputRef = useRef(null)
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={e => { if (e.target.files[0]) onFile(e.target.files[0]); e.target.value = '' }}
+      />
+      <button
+        onClick={() => inputRef.current?.click()}
+        disabled={running}
+        className="text-sm bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 px-4 py-1.5 rounded-lg transition-colors shrink-0"
+      >
+        {running ? '↑ Importing…' : state === 'done' ? '✓ Imported' : state === 'error' ? '↻ Retry' : label}
+      </button>
+    </div>
+  )
+}
+
 export function SyncTab() {
   const {
     pipelineStatus: status,
     syncState, enrichState, enrichStuck,
     triggerSync, triggerEnrich,
+    goodreadsState, guitarState,
+    uploadGoodreads, uploadGuitar,
   } = useChatContext()
 
   const enrich = status?.enrichment
@@ -169,6 +194,106 @@ export function SyncTab() {
               </p>
             )}
 
+          </div>
+        ) : (
+          <div className="bg-zinc-900 rounded-xl p-4 text-zinc-600 text-sm animate-pulse">Loading…</div>
+        )}
+      </section>
+
+      {/* ── Goodreads ── */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-zinc-100 font-semibold">Goodreads</h3>
+            <p className="text-xs text-zinc-500 mt-0.5">Export CSV from Goodreads → My Books → Import/Export</p>
+          </div>
+          <UploadButton
+            label="↑ Upload CSV"
+            accept=".csv"
+            state={goodreadsState}
+            running={goodreadsState === 'running'}
+            onFile={uploadGoodreads}
+          />
+        </div>
+
+        {status ? (
+          <div className="bg-zinc-900 rounded-xl p-4 flex flex-col gap-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-400 flex items-center">
+                <StatusDot stale={status.goodreads?.stale ?? true} />
+                Last imported
+              </span>
+              <span className="text-zinc-300">{formatAge(status.goodreads?.days_ago)}</span>
+            </div>
+            {status.goodreads?.last_fetched_at && (
+              <p className="text-xs text-zinc-600">
+                {new Date(status.goodreads.last_fetched_at).toLocaleString()}
+              </p>
+            )}
+            {status.goodreads?.book_count > 0 && (
+              <p className="text-xs text-zinc-500">
+                {status.goodreads.book_count.toLocaleString()} books in library
+              </p>
+            )}
+            {goodreadsState === 'running' && (
+              <p className="text-xs text-zinc-500 animate-pulse">Importing — fetching OpenLibrary data per book…</p>
+            )}
+            {goodreadsState === 'error' && status.goodreads?.last_error && (
+              <div className="bg-red-950/40 border border-red-800/60 rounded-lg px-3 py-2.5 mt-1">
+                <p className="text-xs text-red-400 font-medium mb-1">Import failed</p>
+                <p className="text-xs text-red-600 font-mono break-all">{status.goodreads.last_error}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-zinc-900 rounded-xl p-4 text-zinc-600 text-sm animate-pulse">Loading…</div>
+        )}
+      </section>
+
+      {/* ── Ultimate Guitar ── */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-zinc-100 font-semibold">Ultimate Guitar</h3>
+            <p className="text-xs text-zinc-500 mt-0.5">Save ultimate-guitar.com/user/mytabs as HTML, upload here</p>
+          </div>
+          <UploadButton
+            label="↑ Upload HTML"
+            accept=".html,.htm"
+            state={guitarState}
+            running={guitarState === 'running'}
+            onFile={uploadGuitar}
+          />
+        </div>
+
+        {status ? (
+          <div className="bg-zinc-900 rounded-xl p-4 flex flex-col gap-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-zinc-400 flex items-center">
+                <StatusDot stale={status.guitar_import?.stale ?? true} />
+                Last imported
+              </span>
+              <span className="text-zinc-300">{formatAge(status.guitar_import?.days_ago)}</span>
+            </div>
+            {status.guitar_import?.last_fetched_at && (
+              <p className="text-xs text-zinc-600">
+                {new Date(status.guitar_import.last_fetched_at).toLocaleString()}
+              </p>
+            )}
+            {status.guitar_import?.song_count > 0 && (
+              <p className="text-xs text-zinc-500">
+                {status.guitar_import.song_count.toLocaleString()} songs in library
+              </p>
+            )}
+            {guitarState === 'running' && (
+              <p className="text-xs text-zinc-500 animate-pulse">Importing — adding new tabs…</p>
+            )}
+            {guitarState === 'error' && status.guitar_import?.last_error && (
+              <div className="bg-red-950/40 border border-red-800/60 rounded-lg px-3 py-2.5 mt-1">
+                <p className="text-xs text-red-400 font-medium mb-1">Import failed</p>
+                <p className="text-xs text-red-600 font-mono break-all">{status.guitar_import.last_error}</p>
+              </div>
+            )}
           </div>
         ) : (
           <div className="bg-zinc-900 rounded-xl p-4 text-zinc-600 text-sm animate-pulse">Loading…</div>

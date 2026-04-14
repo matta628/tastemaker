@@ -13,7 +13,7 @@ import urllib.parse
 import duckdb
 import requests
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pathlib import Path
@@ -52,6 +52,10 @@ Part = Literal["chords", "tabs", "solo"]
 _enrich_running: bool = False
 _enrich_last_error: str | None = None
 _sync_running: bool = False
+_goodreads_running: bool = False
+_goodreads_last_error: str | None = None
+_guitar_running: bool = False
+_guitar_last_error: str | None = None
 
 
 def db():
@@ -423,6 +427,12 @@ def pipelines_status():
     done_artist_similar = conn.execute("SELECT COUNT(DISTINCT artist_name) FROM artist_similar").fetchone()[0]
     done_track_tags    = conn.execute("SELECT COUNT(DISTINCT track || artist) FROM track_tags").fetchone()[0]
 
+    # Goodreads book count
+    total_books = conn.execute("SELECT COUNT(*) FROM raw_books").fetchone()[0]
+
+    # Guitar songs count
+    total_guitar = conn.execute("SELECT COUNT(*) FROM guitar_songs").fetchone()[0]
+
     conn.close()
 
     def pct(done, total):
@@ -437,6 +447,18 @@ def pipelines_status():
             "artist_tags":    {"done": done_artist_tags,    "total": total_artists, "pct": pct(done_artist_tags,    total_artists)},
             "artist_similar": {"done": done_artist_similar, "total": total_artists, "pct": pct(done_artist_similar, total_artists)},
             "track_tags":     {"done": done_track_tags,     "total": total_tracks,  "pct": pct(done_track_tags,     total_tracks)},
+        },
+        "goodreads": {
+            **sync_entry("goodreads"),
+            "process_running": _goodreads_running,
+            "last_error":      _goodreads_last_error,
+            "book_count":      total_books,
+        },
+        "guitar_import": {
+            **sync_entry("guitar_import"),
+            "process_running": _guitar_running,
+            "last_error":      _guitar_last_error,
+            "song_count":      total_guitar,
         },
     }
 
@@ -503,6 +525,100 @@ async def trigger_lastfm_enrich():
 
     asyncio.create_task(run())
     return {"status": "enriching"}
+
+
+@app.post("/pipelines/goodreads/upload", status_code=202)
+async def upload_goodreads(file: UploadFile = File(...)):
+    """Accept a Goodreads CSV export, save it, and run the import pipeline."""
+    global _goodreads_running, _goodreads_last_error
+    if _goodreads_running:
+        return {"status": "already_running"}
+
+    contents = await file.read()
+
+    async def run():
+        global _goodreads_running, _goodreads_last_error
+        _goodreads_running = True
+        _goodreads_last_error = None
+        try:
+            import subprocess, tempfile
+            with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+                tmp.write(contents)
+                tmp_path = tmp.name
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["python", "-m", "backend.pipelines.goodreads", "--csv", tmp_path],
+                capture_output=True, text=True
+            )
+            tail = (result.stdout or result.stderr or "")[-800:]
+            if result.returncode != 0:
+                _goodreads_last_error = f"Exit {result.returncode}: {(result.stderr or result.stdout or 'no output')[-400:]}"
+                print(f"[goodreads] import FAILED (exit {result.returncode}):", tail)
+            else:
+                print("[goodreads] import done:", tail)
+                # Update pipeline_state timestamp
+                conn = db()
+                conn.execute("""
+                    INSERT INTO pipeline_state (pipeline_name, last_fetched_at)
+                    VALUES ('goodreads', now())
+                    ON CONFLICT (pipeline_name) DO UPDATE SET last_fetched_at = now()
+                """)
+                conn.close()
+        except Exception as e:
+            _goodreads_last_error = str(e)
+            print(f"[goodreads] import exception: {e}")
+        finally:
+            _goodreads_running = False
+
+    asyncio.create_task(run())
+    return {"status": "importing"}
+
+
+@app.post("/pipelines/guitar/upload", status_code=202)
+async def upload_guitar(file: UploadFile = File(...)):
+    """Accept an Ultimate Guitar My Tabs HTML file, save it, and run the import pipeline."""
+    global _guitar_running, _guitar_last_error
+    if _guitar_running:
+        return {"status": "already_running"}
+
+    contents = await file.read()
+
+    async def run():
+        global _guitar_running, _guitar_last_error
+        _guitar_running = True
+        _guitar_last_error = None
+        try:
+            import subprocess, tempfile
+            with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp:
+                tmp.write(contents)
+                tmp_path = tmp.name
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["python", "-m", "backend.pipelines.ug", "--html", tmp_path],
+                capture_output=True, text=True
+            )
+            tail = (result.stdout or result.stderr or "")[-800:]
+            if result.returncode != 0:
+                _guitar_last_error = f"Exit {result.returncode}: {(result.stderr or result.stdout or 'no output')[-400:]}"
+                print(f"[guitar] import FAILED (exit {result.returncode}):", tail)
+            else:
+                print("[guitar] import done:", tail)
+                # Update pipeline_state timestamp
+                conn = db()
+                conn.execute("""
+                    INSERT INTO pipeline_state (pipeline_name, last_fetched_at)
+                    VALUES ('guitar_import', now())
+                    ON CONFLICT (pipeline_name) DO UPDATE SET last_fetched_at = now()
+                """)
+                conn.close()
+        except Exception as e:
+            _guitar_last_error = str(e)
+            print(f"[guitar] import exception: {e}")
+        finally:
+            _guitar_running = False
+
+    asyncio.create_task(run())
+    return {"status": "importing"}
 
 
 # ---------------------------------------------------------------------------
