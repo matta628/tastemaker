@@ -89,17 +89,17 @@ function ModifyTarget({ playlist, onDelete, onCancel }) {
   const tracks = parseTracks(playlist.tracks)
   return (
     <div className="bg-zinc-900 rounded-xl border border-zinc-700">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800">
+      <div
+        className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800 cursor-pointer hover:bg-zinc-800/40 transition-colors rounded-t-xl"
+        onClick={onCancel}
+      >
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-zinc-100 truncate">{playlist.name}</p>
           <p className="text-xs text-zinc-500 mt-0.5">{tracks.length} tracks · {new Date(playlist.created_at).toLocaleDateString()}</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <button onClick={onCancel}
-            className="text-xs text-zinc-500 hover:text-zinc-200 px-2 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
-            title="Cancel edit">✕ cancel</button>
-          <button onClick={() => onDelete(playlist.playlist_id)}
-            className="text-zinc-600 hover:text-red-400 px-2 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors"
+          <button onClick={(e) => { e.stopPropagation(); onDelete(playlist.playlist_id) }}
+            className="text-zinc-500 hover:text-red-400 px-2.5 py-2 rounded-lg hover:bg-zinc-800 transition-colors"
             title="Delete"><TrashIcon /></button>
         </div>
       </div>
@@ -287,13 +287,13 @@ export function PlaylistCreator() {
                     >{t.label}</button>
                   ))}
                 </div>
-                <div className="max-h-64 overflow-y-auto">
+                <div>
                   {active === 'reasoning' && thoughts && (
-                    <p className="px-4 py-3 text-xs text-zinc-500 whitespace-pre-wrap leading-relaxed">{thoughts}</p>
+                    <p className="px-4 py-4 text-xs text-zinc-500 whitespace-pre-wrap leading-relaxed">{thoughts}</p>
                   )}
                   {active === 'sql' && queries.map((q, i) => (
-                    <div key={i} className="px-4 py-3 border-b border-zinc-800/60 last:border-0">
-                      {queries.length > 1 && <p className="text-xs text-zinc-600 mb-1">Query {i + 1}</p>}
+                    <div key={i} className="px-4 py-4 border-b border-zinc-800/60 last:border-0">
+                      {queries.length > 1 && <p className="text-xs text-zinc-600 mb-2">Query {i + 1}</p>}
                       <pre className="text-xs text-zinc-400 whitespace-pre-wrap leading-relaxed">{q}</pre>
                     </div>
                   ))}
