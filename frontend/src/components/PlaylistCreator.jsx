@@ -411,7 +411,7 @@ export function PlaylistCreator() {
             <div className="bg-red-950/50 border border-red-800 rounded-xl px-4 py-3">
               <p className="text-red-400 text-sm font-medium mb-1">Something went wrong</p>
               <p className="text-red-500 text-xs">{plErrorMsg}</p>
-              <p className="text-zinc-600 text-xs mt-2">Check Pi logs: <code className="text-zinc-400">docker compose logs backend 2>&1 | less +G</code></p>
+              <p className="text-zinc-600 text-xs mt-2">Check Pi logs: <code className="text-zinc-400">{'docker compose logs backend 2>&1 | less +G'}</code></p>
             </div>
           )}
 
