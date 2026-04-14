@@ -31,6 +31,7 @@ async def get_agent():
         # Persists conversation threads across server restarts.
         _conn = await aiosqlite.connect("/app/checkpoints.db")
         _checkpointer = AsyncSqliteSaver(_conn)
+        await _checkpointer.setup()  # creates checkpoint tables if they don't exist
         _agent = create_react_agent(
             model=_model,
             tools=[query_database, build_playlist, track_similar_lookup, artist_top_tracks],

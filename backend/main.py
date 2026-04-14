@@ -882,8 +882,13 @@ async def agent_playlist(body: PlaylistRequest):
                         yield f"event: tool_end\ndata: done\n\n"
 
         except Exception as e:
-            print(f"[playlist] Stream error: {e}")
+            import traceback
+            print(f"[playlist] Stream error: {e}\n{traceback.format_exc()}")
             yield f"event: error\ndata: {str(e)}\n\n"
+            return
+
+        if not any("playlist" in t for t in thoughts_parts):
+            print("[playlist] WARNING: stream ended with no build_playlist call")
 
         yield "event: done\ndata: done\n\n"
 
