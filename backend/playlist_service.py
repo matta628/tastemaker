@@ -18,7 +18,7 @@ def build_shortcuts_url(name: str, tracks: list[dict]) -> str:
 
     The Shortcut receives newline-separated lines where:
     - Line 0: playlist name
-    - Lines 1+: "Artist — Track" for each song
+    - Lines 1+: "Artist -;- Track" for each song
 
     Args:
         name:   Playlist name
@@ -27,7 +27,7 @@ def build_shortcuts_url(name: str, tracks: list[dict]) -> str:
     Returns:
         A shortcuts:// URL string ready to be opened on iPhone.
     """
-    lines = [name] + [f"{t['artist']} — {t['title']}" for t in tracks]
+    lines = [name] + [f"{t['artist']} -;- {t['title']}" for t in tracks]
     text = "\n".join(lines)
     encoded = urllib.parse.quote(text, safe="")
     return f"shortcuts://run-shortcut?name=TastemakerPlaylist&input=text&text={encoded}"

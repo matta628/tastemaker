@@ -67,6 +67,11 @@ def build_playlist(name: str, tracks: list[dict]) -> str:
     1. Query artist_tags / track_tags first to find personally-listened tracks matching the vibe
     2. Use artist_similar to expand beyond direct history if needed
     3. Order tracks thoughtfully — energy arc, not alphabetical
+
+    For discovery requests ("new songs", "haven't heard", "fresh picks"):
+    - Use artist_similar to find adjacent artists not in the user's scrobble history
+    - Use track_similar_lookup on their favorite tracks to surface unfamiliar songs
+    - Cross-reference raw_scrobbles to confirm a track hasn't been played (or has low play count)
     """
     tracks = tracks[:250]  # cap to prevent URL length issues with iOS Shortcuts
     url = build_shortcuts_url(name, tracks)
