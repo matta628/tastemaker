@@ -29,7 +29,7 @@ def get_agent():
         )
         # SqliteSaver persists conversation threads across server restarts.
         # check_same_thread=False is required for FastAPI's async context.
-        _conn = sqlite3.connect("checkpoints.db", check_same_thread=False)
+        _conn = sqlite3.connect("/app/checkpoints.db", check_same_thread=False)
         _checkpointer = SqliteSaver(_conn)
         _agent = create_react_agent(
             model=_model,
