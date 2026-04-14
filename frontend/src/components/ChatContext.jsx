@@ -230,42 +230,54 @@ export function ChatProvider({ children }) {
       const reader  = res.body.getReader()
       const decoder = new TextDecoder()
       let   buffer  = ''
+      let   shouldStop = false
 
-      while (true) {
+      while (!shouldStop) {
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop()
 
-        let eventType = 'message'
-        for (const line of lines) {
-          if (line.startsWith('event:')) {
-            eventType = line.slice(6).trim()
-          } else if (line.startsWith('data:')) {
-            const data = line.slice(5).trim()
-            if (eventType === 'done') break
-            if (eventType === 'error') {
-              setPlErrorMsg(data)
-              setPlStatus('error')
-              return
+        // Split on double-newline to get complete SSE event blocks.
+        // This prevents the cross-chunk bug where event: and data: lines
+        // arrive in separate read() calls and eventType gets reset.
+        const parts = buffer.split(/\n\n/)
+        buffer = parts.pop() ?? ''
+
+        for (const part of parts) {
+          if (shouldStop || !part.trim()) continue
+
+          const lines = part.split('\n')
+          let eventType = 'message'
+          const dataParts = []
+          for (const line of lines) {
+            if (line.startsWith('event:')) eventType = line.slice(6).trim()
+            else if (line.startsWith('data:')) dataParts.push(line.slice(5).trim())
+          }
+          const data = dataParts.join('\n')
+
+          if (eventType === 'done') { shouldStop = true; break }
+          if (!data) continue
+          if (eventType === 'error') {
+            setPlErrorMsg(data)
+            setPlStatus('error')
+            shouldStop = true
+            break
+          }
+          if (eventType === 'tool_start') {
+            setPlToolMsg(data === 'build_playlist' ? 'Building playlist…' : 'Querying your data…')
+          } else if (eventType === 'tool_end') {
+            setPlToolMsg('')
+          } else if (eventType === 'playlist') {
+            try {
+              const p = JSON.parse(data)
+              setPlPlaylist(p)
+              gotPlaylist = true
+            } catch (e) {
+              console.error('Failed to parse playlist event:', data, e)
             }
-            if (eventType === 'tool_start') {
-              setPlToolMsg(data === 'build_playlist' ? 'Building playlist…' : 'Querying your data…')
-            } else if (eventType === 'tool_end') {
-              setPlToolMsg('')
-            } else if (eventType === 'playlist') {
-              try {
-                const p = JSON.parse(data)
-                setPlPlaylist(p)
-                gotPlaylist = true
-              } catch (e) {
-                console.error('Failed to parse playlist event:', data, e)
-              }
-            } else {
-              setPlThoughts(prev => prev + data)
-            }
+          } else {
+            setPlThoughts(prev => prev + data)
           }
         }
       }
