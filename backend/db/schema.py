@@ -188,10 +188,18 @@ def create_schema():
             prompt       VARCHAR NOT NULL,
             tracks       JSON    NOT NULL,   -- [{title, artist}, ...]
             shortcuts_url VARCHAR NOT NULL,
+            thoughts     TEXT,               -- agent reasoning text
+            queries      JSON,               -- [sql_string, ...] used to build the playlist
             created_at   TIMESTAMPTZ DEFAULT now(),
             updated_at   TIMESTAMPTZ DEFAULT now()
         )
     """)
+    # Migrate existing tables that predate these columns
+    for col, typedef in [("thoughts", "TEXT"), ("queries", "JSON")]:
+        try:
+            conn.execute(f"ALTER TABLE playlists ADD COLUMN IF NOT EXISTS {col} {typedef}")
+        except Exception:
+            pass
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS enrichment_skipped (

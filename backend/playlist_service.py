@@ -9,7 +9,13 @@ Future upgrade: when an Apple Developer account is available, swap
 create() to call the MusicKit REST API instead. The agent tool and
 frontend button require zero changes.
 """
+import re
 import urllib.parse
+
+
+def _clean_title(title: str) -> str:
+    """Strip feat./ft. annotations that Apple Music doesn't include in Title field."""
+    return re.sub(r'\s*[\(\[]feat\.?.*?[\)\]]', '', title, flags=re.IGNORECASE).strip()
 
 
 def build_shortcuts_url(name: str, tracks: list[dict]) -> str:
@@ -27,7 +33,7 @@ def build_shortcuts_url(name: str, tracks: list[dict]) -> str:
     Returns:
         A shortcuts:// URL string ready to be opened on iPhone.
     """
-    lines = [name] + [f"{t['artist']} -;- {t['title']}" for t in tracks]
+    lines = [name] + [f"{t['artist']} -;- {_clean_title(t['title'])}" for t in tracks]
     text = "\n".join(lines)
     encoded = urllib.parse.quote(text, safe="")
     return f"shortcuts://run-shortcut?name=TastemakerPlaylist&input=text&text={encoded}"

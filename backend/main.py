@@ -583,6 +583,9 @@ async def agent_playlist(body: PlaylistRequest):
     print(f"[playlist] Starting: {body.prompt!r}")
 
     async def stream():
+        queries: list[str] = []
+        thoughts_parts: list[str] = []
+
         try:
             async for event in agent.astream_events(
                 {"messages": [{"role": "user", "content": system_msg}]},
@@ -600,12 +603,20 @@ async def agent_playlist(body: PlaylistRequest):
                     elif isinstance(chunk.content, str) and chunk.content:
                         text = chunk.content
                     if text:
+                        thoughts_parts.append(text)
                         encoded = "\n".join(f"data: {line}" for line in text.split("\n"))
                         yield f"{encoded}\n\n"
 
                 elif kind == "on_tool_start":
                     tool = event.get("name", "tool")
                     print(f"[playlist] Tool start: {tool}")
+                    # Capture SQL queries for provenance
+                    if tool == "query_database":
+                        inp = event.get("data", {})
+                        if isinstance(inp, dict):
+                            sql = inp.get("input", {}).get("sql", "")
+                            if sql:
+                                queries.append(sql)
                     yield f"event: tool_start\ndata: {tool}\n\n"
 
                 elif kind == "on_tool_end":
@@ -629,7 +640,6 @@ async def agent_playlist(body: PlaylistRequest):
                             raw = str(data) if data else ""
 
                         print(f"[playlist] raw type: {type(raw).__name__}, value: {repr(raw)[:200]}")
-                        # output may be a double-encoded JSON string — unwrap if needed
                         try:
                             playlist_data = json.loads(raw) if isinstance(raw, str) else raw
                             if isinstance(playlist_data, str):
@@ -641,6 +651,8 @@ async def agent_playlist(body: PlaylistRequest):
 
                         print(f"[playlist] Built: {playlist_data.get('name')!r} with {len(playlist_data.get('tracks', []))} tracks")
 
+                        thoughts_text = "".join(thoughts_parts)
+
                         # Auto-save to DB
                         try:
                             now = datetime.now(tz=timezone.utc)
@@ -648,24 +660,29 @@ async def agent_playlist(body: PlaylistRequest):
                             conn = db()
                             if pid:
                                 conn.execute(
-                                    "UPDATE playlists SET name=?, prompt=?, tracks=?, shortcuts_url=?, updated_at=? "
-                                    "WHERE playlist_id=?",
+                                    "UPDATE playlists SET name=?, prompt=?, tracks=?, shortcuts_url=?, "
+                                    "thoughts=?, queries=?, updated_at=? WHERE playlist_id=?",
                                     [playlist_data["name"], body.prompt,
                                      json.dumps(playlist_data["tracks"]),
-                                     playlist_data["shortcuts_url"], now, pid]
+                                     playlist_data["shortcuts_url"],
+                                     thoughts_text, json.dumps(queries), now, pid]
                                 )
                             else:
                                 pid = str(uuid4())
                                 conn.execute(
-                                    "INSERT INTO playlists (playlist_id, name, prompt, tracks, shortcuts_url, created_at, updated_at) "
-                                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                    "INSERT INTO playlists "
+                                    "(playlist_id, name, prompt, tracks, shortcuts_url, thoughts, queries, created_at, updated_at) "
+                                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                                     [pid, playlist_data["name"], body.prompt,
                                      json.dumps(playlist_data["tracks"]),
-                                     playlist_data["shortcuts_url"], now, now]
+                                     playlist_data["shortcuts_url"],
+                                     thoughts_text, json.dumps(queries), now, now]
                                 )
                             conn.close()
                             playlist_data["playlist_id"] = pid
-                            print(f"[playlist] Saved to DB: {pid}")
+                            playlist_data["thoughts"] = thoughts_text
+                            playlist_data["queries"] = queries
+                            print(f"[playlist] Saved to DB: {pid} ({len(queries)} queries captured)")
                         except Exception as e:
                             print(f"[playlist] DB save failed: {e}")
 
