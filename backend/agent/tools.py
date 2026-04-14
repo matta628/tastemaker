@@ -83,6 +83,51 @@ def build_playlist(name: str, tracks: list[dict]) -> str:
 
 
 @tool
+def artist_top_tracks(artist: str, limit: int = 10) -> str:
+    """
+    Get an artist's most popular tracks ranked by Last.fm community plays.
+
+    Use this to pick WHICH songs to include once you've chosen an artist —
+    especially for discovery (new artists, unplayed songs from known artists).
+    Prefer this over random selection or guessing track names.
+
+    Args:
+        artist: Artist name (exact or close match)
+        limit:  Number of tracks to return (default 10, max 50)
+
+    Returns:
+        Markdown table of top tracks with play counts.
+
+    Strategy guide:
+    - For "new songs from artists I like": query raw_scrobbles to find their top artists,
+      call this tool, then filter out tracks already in raw_scrobbles.
+    - For "new artists": find via artist_similar, call this tool on each new artist.
+    - Do NOT rely on track_tags for discovery — only 33% of tracks have them.
+      Use artist_tags for genre/vibe matching, this tool for song selection.
+    """
+    api_key = os.getenv("LASTFM_API_KEY")
+    if not api_key:
+        return "LASTFM_API_KEY not set."
+    try:
+        resp = requests.get(LASTFM_API_BASE, params={
+            "method": "artist.getTopTracks",
+            "artist": artist,
+            "limit": min(limit, 50),
+            "api_key": api_key,
+            "format": "json",
+        }, timeout=10)
+        tracks = resp.json().get("toptracks", {}).get("track", [])
+        if not tracks:
+            return f"No top tracks found for {artist}."
+        rows = [{"title": t["name"], "artist": artist, "plays": int(t["playcount"])}
+                for t in tracks]
+        import pandas as pd
+        return pd.DataFrame(rows).to_markdown(index=False)
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool
 def track_similar_lookup(track: str, artist: str, limit: int = 10) -> str:
     """
     Find tracks similar to a given song via Last.fm.
