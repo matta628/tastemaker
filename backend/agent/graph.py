@@ -2,10 +2,9 @@
 LangGraph agent — Claude + tool loop.
 """
 import os
-import sqlite3
 from dotenv import load_dotenv
 from langchain_anthropic import ChatAnthropic
-from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.prebuilt import create_react_agent
 
 from backend.agent.prompts import SYSTEM_PROMPT
@@ -19,7 +18,7 @@ _agent = None
 _checkpointer = None
 
 
-def get_agent():
+async def get_agent():
     global _model, _agent, _checkpointer
     if _agent is None:
         _model = ChatAnthropic(
@@ -27,10 +26,9 @@ def get_agent():
             api_key=os.environ["ANTHROPIC_API_KEY"],
             max_tokens=4096,
         )
-        # SqliteSaver persists conversation threads across server restarts.
-        # check_same_thread=False is required for FastAPI's async context.
-        _conn = sqlite3.connect("/app/checkpoints.db", check_same_thread=False)
-        _checkpointer = SqliteSaver(_conn)
+        # AsyncSqliteSaver is required for FastAPI's async context.
+        # Persists conversation threads across server restarts.
+        _checkpointer = AsyncSqliteSaver.from_conn_string("/app/checkpoints.db")
         _agent = create_react_agent(
             model=_model,
             tools=[query_database, build_playlist, track_similar_lookup, artist_top_tracks],

@@ -743,7 +743,7 @@ async def agent_playlist(body: PlaylistRequest):
     """
     from backend.agent.graph import get_agent
 
-    agent = get_agent()
+    agent = await get_agent()
     config = {"configurable": {"thread_id": f"playlist-{id(body)}"}}
 
     # Build the prompt — include existing playlist context when modifying
@@ -894,7 +894,7 @@ async def agent_playlist(body: PlaylistRequest):
 async def agent_chat(body: ChatRequest):
     from backend.agent.graph import get_agent
 
-    agent = get_agent()
+    agent = await get_agent()
     config = {"configurable": {"thread_id": body.thread_id}}
 
     async def stream():
