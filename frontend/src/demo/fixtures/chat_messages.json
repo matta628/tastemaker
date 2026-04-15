@@ -1,0 +1,22 @@
+{
+  "demo-chat-1": [
+    {
+      "role": "user",
+      "content": "What does my listening history say about me? Give me something interesting."
+    },
+    {
+      "role": "assistant",
+      "content": "## You Have a Parasocial Relationship With The Strokes\n\nNot a fan. A *devotee*. **10,717 total plays** — nearly 60% more than your second-place artist (Lana Del Rey at 6,844). \"Soma\" alone has been played **756 times**. That's not a favorite song. That's a psychological anchor. And fittingly, the only song you've marked **\"learned\"** on guitar is \"Life Is Simple in the Moonlight,\" with the note: *\"Know the full chord progression cold.\"* Of course you do.\n\n---\n\n## You Are a Creature of the Late Afternoon and Night\n\nYour listening **collapses in the morning**. The 9–10am hour is your quietest window — just 1,258 plays across your entire history. Then something clicks on around noon, builds steadily, and **peaks hard at 3–5pm**. From there it stays elevated all evening — and barely drops at midnight. You're logging **5,000+ plays per hour between midnight and 3am**. Your 9am self is a different person from your 3pm self.\n\n---\n\n## 2020 Was Your Peak Listening Year\n\nYour scrobble volume in 2020 was **24,251 plays** — roughly 30% more than any other year. And The Strokes were eating **2,752** of those plays alone. This lines up almost exactly with *The New Abnormal* (April 2020). You didn't just like that album. You apparently lived inside it.\n\n---\n\n## Your Reading and Listening Share a Hidden Thread: Intensity Over Escapism\n\nYour five-star books include *Crime and Punishment*, *Steppenwolf*, *East of Eden*, and *Love in the Time of Cholera* — heavy, interior, morally serious novels. And yet your guitar list includes \"Cama Y Mesa\" (Roberto Carlos), classic Latin romantic ballads, deeply sentimental. That's a real tension: the part of you that wants to *grapple* with something difficult, and the part that just wants to feel something simple and true. The Strokes split that difference — they sound effortless but they're emotionally exact.\n\n---\n\n## The Surprise: Your Secret Italophone Side\n\n**Baustelle** — an Italian indie band virtually unknown outside Italy — sits at **1,533 plays**, squarely in your top 15 artists. **Mina**, the legendary Italian pop singer, has **875 plays**. \"Veronica, n.2\" by Baustelle is your **9th most-played song ever** with 538 plays. Nobody in your broader taste profile would predict this. And you're learning \"Gomma\" on guitar. Whatever the Italian connection is, it runs deep."
+    }
+  ],
+  "demo-chat-2": [
+    {
+      "role": "user",
+      "content": "What guitar song should I learn next?"
+    },
+    {
+      "role": "assistant",
+      "content": "Looking at your guitar log and listening data together, here's what stands out:\n\nYou've got one learned song (Life Is Simple in the Moonlight, diff 2), two in progress (Mala Gente, Eulogy For A Rock Band), and a long wishlist that skews toward The Strokes and Elliott Smith. Your scrobble data puts Elliott Smith in your top 10 most-played artists — \"Pictures of Me\" at 449 plays, \"Baby Britain\" at 375.\n\n**My recommendation: \"Waltz #2\" by Elliott Smith** (difficulty ~3).\n\nHere's why it fits:\n- It's fingerpicking-forward, which is the natural evolution from the chord-based stuff you've been doing\n- The chord movement (E → A → B7 → E) sits in a comfortable range without requiring big stretches\n- You've clearly got a deep emotional connection to his music — 449 scrobbles of \"Pictures of Me\" is not casual listening\n- Short enough to get clean in a few weeks, satisfying enough to actually want to play it\n\nAfter that, \"Between the Bars\" would be a natural step up — same fingerpicking vocabulary but with more complex chord voicings and a slower, more demanding tempo that'll push your control."
+    }
+  ]
+}

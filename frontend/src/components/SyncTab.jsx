@@ -57,6 +57,32 @@ export function SyncTab() {
     uploadGoodreads, uploadGuitar,
   } = useChatContext()
 
+  if (import.meta.env.VITE_DEMO_MODE === 'true') {
+    return (
+      <div className="px-6 py-8 max-w-lg mx-auto">
+        <div className="bg-zinc-800/60 border border-zinc-700 rounded-xl px-5 py-4 mb-6">
+          <p className="text-sm font-medium text-zinc-300 mb-1">Demo mode</p>
+          <p className="text-sm text-zinc-500">
+            Pipeline sync is disabled here. In the real app, this tab syncs your Last.fm scrobble history
+            (~121k plays since 2019), enriches artist and track tags, and imports your Goodreads library — all
+            running automatically on a Raspberry Pi via cron.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3 opacity-40 pointer-events-none select-none">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+            <p className="text-sm text-zinc-400">Last.fm sync · last ran today</p>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+            <p className="text-sm text-zinc-400">Tag enrichment · 87% complete</p>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3">
+            <p className="text-sm text-zinc-400">Goodreads · 247 books</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const enrich = status?.enrichment
   // Complete = process finished with no error (skipped entries mean pct never hits 100)
   const enrichComplete = enrich && !enrich.process_running && !enrich.last_error && enrich.last_fetched_at

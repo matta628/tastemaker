@@ -1,0 +1,34 @@
+{
+  "lastfm": {
+    "stale": false,
+    "days_ago": 0.3,
+    "last_fetched_at": "2025-04-14T06:00:00Z",
+    "process_running": false,
+    "last_error": null
+  },
+  "enrichment": {
+    "process_running": false,
+    "last_error": null,
+    "last_fetched_at": "2025-04-13T03:00:00Z",
+    "days_ago": 1.1,
+    "artist_tags": { "pct": 87, "done": 1043, "total": 1198 },
+    "artist_similar": { "pct": 82, "done": 981, "total": 1198 },
+    "track_tags": { "pct": 33, "done": 9821, "total": 29762 }
+  },
+  "goodreads": {
+    "stale": false,
+    "days_ago": 3,
+    "last_fetched_at": "2025-04-11T10:00:00Z",
+    "process_running": false,
+    "last_error": null,
+    "book_count": 247
+  },
+  "guitar_import": {
+    "stale": false,
+    "days_ago": 1,
+    "last_fetched_at": "2025-04-13T15:00:00Z",
+    "process_running": false,
+    "last_error": null,
+    "song_count": 10
+  }
+}

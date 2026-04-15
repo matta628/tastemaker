@@ -1,0 +1,122 @@
+[
+  {
+    "song_id": "demo-song-1",
+    "title": "Life Is Simple in the Moonlight",
+    "artist": "The Strokes",
+    "part": "chords",
+    "difficulty": 2,
+    "status": "learned",
+    "notes": "Know the full chord progression cold.",
+    "date_started": "2025-11-10",
+    "created_at": "2025-11-10T10:00:00Z",
+    "updated_at": "2026-01-15T18:30:00Z"
+  },
+  {
+    "song_id": "demo-song-2",
+    "title": "Mala Gente",
+    "artist": "Juanes",
+    "part": "chords",
+    "difficulty": 3,
+    "status": "learning",
+    "notes": "The strumming pattern is tricky — the syncopation keeps throwing me off. Sounds great when it clicks though.",
+    "date_started": "2026-03-28",
+    "created_at": "2026-03-28T10:00:00Z",
+    "updated_at": "2026-04-10T20:00:00Z"
+  },
+  {
+    "song_id": "demo-song-3",
+    "title": "Eulogy For A Rock Band",
+    "artist": "Weezer",
+    "part": "chords",
+    "difficulty": 2,
+    "status": "learning",
+    "notes": "Pretty straightforward power chords. Want to nail the feel of it — it's deceptively simple.",
+    "date_started": "2026-03-27",
+    "created_at": "2026-03-27T10:00:00Z",
+    "updated_at": "2026-04-08T19:00:00Z"
+  },
+  {
+    "song_id": "demo-song-4",
+    "title": "Soma",
+    "artist": "The Strokes",
+    "part": "tabs",
+    "difficulty": 3,
+    "status": "want_to_learn",
+    "notes": "My most played song ever. Have to learn this one eventually.",
+    "date_started": "2026-02-01",
+    "created_at": "2026-02-01T10:00:00Z",
+    "updated_at": "2026-02-01T10:00:00Z"
+  },
+  {
+    "song_id": "demo-song-5",
+    "title": "And I Love Her",
+    "artist": "The Beatles",
+    "part": "chords",
+    "difficulty": 2,
+    "status": "want_to_learn",
+    "notes": "",
+    "date_started": "2026-03-23",
+    "created_at": "2026-03-23T10:00:00Z",
+    "updated_at": "2026-03-23T10:00:00Z"
+  },
+  {
+    "song_id": "demo-song-6",
+    "title": "Pictures of Me",
+    "artist": "Elliott Smith",
+    "part": "tabs",
+    "difficulty": 3,
+    "status": "want_to_learn",
+    "notes": "Fingerpicking piece. One of my most played tracks — 449 scrobbles. Would love to play it.",
+    "date_started": "2026-01-15",
+    "created_at": "2026-01-15T10:00:00Z",
+    "updated_at": "2026-01-15T10:00:00Z"
+  },
+  {
+    "song_id": "demo-song-7",
+    "title": "Meet Me in the Bathroom",
+    "artist": "The Strokes",
+    "part": "chords",
+    "difficulty": 2,
+    "status": "want_to_learn",
+    "notes": "",
+    "date_started": "2026-03-09",
+    "created_at": "2026-03-09T10:00:00Z",
+    "updated_at": "2026-03-09T10:00:00Z"
+  },
+  {
+    "song_id": "demo-song-8",
+    "title": "Baby Britain",
+    "artist": "Elliott Smith",
+    "part": "chords",
+    "difficulty": 3,
+    "status": "want_to_learn",
+    "notes": "Love the chord movement in the chorus. Sounds more complex than it probably is.",
+    "date_started": "2026-02-20",
+    "created_at": "2026-02-20T10:00:00Z",
+    "updated_at": "2026-02-20T10:00:00Z"
+  },
+  {
+    "song_id": "demo-song-9",
+    "title": "Lovely Day",
+    "artist": "Bill Withers",
+    "part": "chords",
+    "difficulty": 1,
+    "status": "learned",
+    "notes": "Simple but feels so good. The long sustained note at the end is the whole song.",
+    "date_started": "2025-12-01",
+    "created_at": "2025-12-01T10:00:00Z",
+    "updated_at": "2026-01-10T15:00:00Z"
+  },
+  {
+    "song_id": "demo-song-10",
+    "title": "Gomma",
+    "artist": "Baustelle",
+    "part": "chords",
+    "difficulty": 3,
+    "status": "learning",
+    "notes": "Italian band — one of my most played artists weirdly. The chord changes are unusual, not your typical shapes.",
+    "date_started": "2026-04-01",
+    "created_at": "2026-04-01T10:00:00Z",
+    "updated_at": "2026-04-12T20:00:00Z"
+  }
+]

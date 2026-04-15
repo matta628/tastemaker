@@ -2,8 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import { maybeInstallMock } from './demo/index.js'
 
-console.log('🎸 Tastemaker build: 2026-04-13-v2')
+maybeInstallMock()
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
