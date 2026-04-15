@@ -136,7 +136,11 @@ export function PlaylistCreator() {
 
   useEffect(() => { fetchSaved() }, [fetchSaved])
 
-  const handleOpen = (url) => { window.location.href = url }
+  const handleOpen = (url) => {
+    const a = document.createElement('a')
+    a.href = url
+    a.click()
+  }
 
   const handleModify = (playlist) => {
     if (plModifying?.playlist_id === playlist.playlist_id) {
