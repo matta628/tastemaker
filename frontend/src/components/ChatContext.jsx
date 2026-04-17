@@ -164,10 +164,12 @@ export function ChatProvider({ children }) {
           await fetch(`${BASE}/chats/${chatId}/messages`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify([
-              { role: 'user',      content: text },
-              { role: 'assistant', content: finalContent },
-            ]),
+            body:    JSON.stringify({
+              messages: [
+                { role: 'user',      content: text },
+                { role: 'assistant', content: finalContent },
+              ],
+            }),
           })
           fetchChats()
         } catch {}

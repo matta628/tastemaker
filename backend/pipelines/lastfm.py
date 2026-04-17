@@ -266,14 +266,15 @@ def _skip(conn, entity_type: str, entity_name: str, reason: str):
 
 
 def enrich_artist_tags(conn, api_key: str, rl: _RateLimiter):
-    """Fetch Last.fm genre/mood tags for every unique artist in scrobble history."""
+    """Fetch Last.fm genre/mood tags for scrobble artists + similar artists in the taste graph."""
     artists = [r[0] for r in conn.execute("""
         SELECT DISTINCT artist FROM raw_scrobbles
-        WHERE artist NOT IN (SELECT DISTINCT artist_name FROM artist_tags)
-          AND artist NOT IN (
-              SELECT entity_name FROM enrichment_skipped
-              WHERE entity_type = 'artist_tags'
-          )
+        UNION
+        SELECT DISTINCT similar_artist FROM artist_similar
+        EXCEPT
+        SELECT DISTINCT artist_name FROM artist_tags
+        EXCEPT
+        SELECT entity_name FROM enrichment_skipped WHERE entity_type = 'artist_tags'
         ORDER BY artist
     """).fetchall()]
 
@@ -358,7 +359,7 @@ def enrich_track_tags(conn, api_key: str, rl: _RateLimiter):
     tracks = conn.execute("""
         SELECT track, artist FROM raw_scrobbles
         GROUP BY track, artist
-        HAVING COUNT(*) >= 5
+        HAVING COUNT(*) >= 3
         AND (track, artist) NOT IN (
             SELECT DISTINCT track, artist FROM track_tags
         )

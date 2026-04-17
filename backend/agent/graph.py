@@ -9,7 +9,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.prebuilt import create_react_agent
 
 from backend.agent.prompts import SYSTEM_PROMPT
-from backend.agent.tools import query_database, build_playlist, track_similar_lookup, artist_top_tracks
+from backend.agent.tools import query_database, build_playlist, track_similar_lookup, artist_top_tracks, discover_tracks
 
 # Load secrets at import time (works both locally and in Docker)
 load_dotenv(".env.secret")
@@ -34,7 +34,7 @@ async def get_agent():
         await _checkpointer.setup()  # creates checkpoint tables if they don't exist
         _agent = create_react_agent(
             model=_model,
-            tools=[query_database, build_playlist, track_similar_lookup, artist_top_tracks],
+            tools=[query_database, build_playlist, track_similar_lookup, artist_top_tracks, discover_tracks],
             prompt=SYSTEM_PROMPT,
             checkpointer=_checkpointer,
         )
