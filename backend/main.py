@@ -777,12 +777,20 @@ async def agent_playlist(body: PlaylistRequest):
         queries: list[str] = []
         thoughts_parts: list[str] = []
 
+        gen = agent.astream_events(
+            {"messages": [{"role": "user", "content": system_msg}]},
+            config=config,
+            version="v2",
+        )
         try:
-            async for event in agent.astream_events(
-                {"messages": [{"role": "user", "content": system_msg}]},
-                config=config,
-                version="v2",
-            ):
+            while True:
+                try:
+                    event = await asyncio.wait_for(gen.__anext__(), timeout=25.0)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
                 kind = event["event"]
                 if kind == "on_chat_model_stream":
                     chunk = event["data"]["chunk"]
