@@ -674,14 +674,16 @@ def clear_no_data_skips():
     Call once after lowering Last.fm vote thresholds.
     """
     conn = db()
-    result = conn.execute("""
+    before = conn.execute(
+        "SELECT COUNT(*) FROM enrichment_skipped WHERE reason = 'no_data' AND entity_type IN ('artist_tags', 'track_tags')"
+    ).fetchone()[0]
+    conn.execute("""
         DELETE FROM enrichment_skipped
         WHERE reason = 'no_data'
           AND entity_type IN ('artist_tags', 'track_tags')
     """)
-    deleted = conn.execute("SELECT changes()").fetchone()[0]
     conn.close()
-    return {"deleted": deleted}
+    return {"deleted": before}
 
 
 # ---------------------------------------------------------------------------
