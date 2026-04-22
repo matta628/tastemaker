@@ -42,6 +42,14 @@ def query_database(sql: str) -> str:
       -- MusicBrainz metadata: artist_type distinguishes 'Group' vs 'Person' (solo projects)
       -- tags[]: authoritative genre list. Query: WHERE 'jazz' = ANY(tags)
       -- Use artist_type='Group' to filter out solo projects when expanding via artist_similar
+    - track_lyrics(track, artist, lyrics TEXT, source, fetched_at)
+      -- Full lyrics. ~60-70% coverage (instrumentals/obscure tracks absent).
+    - track_mood(track, artist, tags VARCHAR[], scores JSON, overridden BOOLEAN, analyzed_at)
+      -- Zero-shot NLP mood tags. Multi-label — a track can be melancholic AND nostalgic.
+      -- tags[]: labels with score >= 0.3. Filter: WHERE 'melancholic' = ANY(tags)
+      -- 14 labels: melancholic, euphoric, anxious, tender, defiant, nostalgic, dark,
+      --   hopeful, lonely, romantic, bitter, raw, peaceful, restless
+      -- overridden=TRUE = user-corrected, treat as ground truth.
 
     Always query real data before making any recommendation.
     Keep queries focused — avoid SELECT * on large tables like raw_scrobbles.

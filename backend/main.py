@@ -58,6 +58,8 @@ _guitar_running: bool = False
 _guitar_last_error: str | None = None
 _mb_running: bool = False
 _mb_last_error: str | None = None
+_lyrics_fetch_running:    bool = False
+_lyrics_fetch_last_error: str | None = None
 
 
 def db():
@@ -259,30 +261,55 @@ def top_tracks(days: int = 30, limit: int = 20):
     return [{"track": r[0], "artist": r[1], "plays": r[2]} for r in rows]
 
 
+def _genius_get(url: str, headers: dict, params: dict, retries: int = 3) -> requests.Response | None:
+    """GET with retry on 429 (rate limit) and 5xx errors."""
+    for attempt in range(retries):
+        try:
+            res = requests.get(url, headers=headers, params=params, timeout=8)
+            if res.status_code == 429:
+                wait = 10.0 * (attempt + 1)
+                print(f"[genius] Rate limited — sleeping {wait:.0f}s (attempt {attempt+1}/{retries})")
+                time.sleep(wait)
+                continue
+            if res.status_code >= 500:
+                wait = 5.0 * (attempt + 1)
+                print(f"[genius] {res.status_code} server error — sleeping {wait:.0f}s")
+                time.sleep(wait)
+                continue
+            return res
+        except requests.RequestException as e:
+            wait = 5.0 * (attempt + 1)
+            print(f"[genius] Request error ({e}) — sleeping {wait:.0f}s")
+            time.sleep(wait)
+    return None
+
+
 def _genius_top_fragment(track: str, artist: str, token: str) -> str | None:
     """Get the most-upvoted annotated lyric fragment for a song via Genius API."""
     try:
         headers = {"Authorization": f"Bearer {token}"}
 
         # Step 1: search for the song to get its ID
-        res = requests.get(
+        res = _genius_get(
             "https://api.genius.com/search",
             headers=headers,
             params={"q": f"{track} {artist}"},
-            timeout=5,
         )
+        if res is None or res.status_code != 200:
+            return None
         hits = res.json().get("response", {}).get("hits", [])
         if not hits:
             return None
         song_id = hits[0]["result"]["id"]
 
         # Step 2: get all annotated fragments for the song
-        res = requests.get(
+        res = _genius_get(
             "https://api.genius.com/referents",
             headers=headers,
             params={"song_id": song_id, "text_format": "plain", "per_page": 50},
-            timeout=5,
         )
+        if res is None or res.status_code != 200:
+            return None
         referents = res.json().get("response", {}).get("referents", [])
         if not referents:
             return None
@@ -381,7 +408,7 @@ async def _lyrics_background_fetch():
             print(f"[lyrics] ({i+1}/{len(rows)}) ✓ {artist} — {track}")
         else:
             print(f"[lyrics] ({i+1}/{len(rows)}) ✗ {artist} — {track}")
-        await asyncio.sleep(1)
+        await asyncio.sleep(1.5)
 
     LYRICS_CACHE.write_text(json.dumps(results))
     print(f"[lyrics] Done — {len(results)}/{len(rows)} with snippets")
@@ -431,6 +458,15 @@ def pipelines_status():
     done_context_tags   = conn.execute("SELECT COUNT(DISTINCT track || artist) FROM track_context_tags").fetchone()[0]
     done_mb             = conn.execute("SELECT COUNT(*) FROM artist_mb").fetchone()[0]
 
+    # Lyrics + mood counts
+    lyrics_fetched = conn.execute("SELECT COUNT(*) FROM track_lyrics").fetchone()[0]
+    lyrics_skipped = conn.execute(
+        "SELECT COUNT(*) FROM enrichment_skipped WHERE entity_type = 'track_lyrics'"
+    ).fetchone()[0]
+    mood_analyzed  = conn.execute("SELECT COUNT(*) FROM track_mood").fetchone()[0]
+    mood_overridden = conn.execute("SELECT COUNT(*) FROM track_mood WHERE overridden = TRUE").fetchone()[0]
+    total_unique_tracks = conn.execute("SELECT COUNT(DISTINCT track || artist) FROM raw_scrobbles").fetchone()[0]
+
     # Goodreads book count
     total_books = conn.execute("SELECT COUNT(*) FROM raw_books").fetchone()[0]
 
@@ -458,6 +494,21 @@ def pipelines_status():
             "process_running": _mb_running,
             "last_error":      _mb_last_error,
             "artist_count":    {"done": done_mb, "total": total_artists, "pct": pct(done_mb, total_artists)},
+        },
+        "lyrics": {
+            **sync_entry("fetch_lyrics"),
+            "process_running": _lyrics_fetch_running,
+            "last_error":      _lyrics_fetch_last_error,
+            "fetched":  lyrics_fetched,
+            "skipped":  lyrics_skipped,
+            "total":    total_unique_tracks,
+            "pct":      pct(lyrics_fetched, total_unique_tracks),
+        },
+        "mood": {
+            "analyzed":   mood_analyzed,
+            "overridden": mood_overridden,
+            "total":      lyrics_fetched,
+            "pct":        pct(mood_analyzed, lyrics_fetched),
         },
         "goodreads": {
             **sync_entry("goodreads"),
@@ -664,6 +715,121 @@ async def trigger_musicbrainz_enrich():
 
     asyncio.create_task(run())
     return {"status": "enriching"}
+
+
+@app.post("/pipelines/lyrics/fetch", status_code=202)
+async def trigger_lyrics_fetch():
+    """Kick off lyrics fetch pipeline in the background."""
+    global _lyrics_fetch_running, _lyrics_fetch_last_error
+    if _lyrics_fetch_running:
+        return {"status": "already_running"}
+
+    async def run():
+        global _lyrics_fetch_running, _lyrics_fetch_last_error
+        _lyrics_fetch_running = True
+        _lyrics_fetch_last_error = None
+        try:
+            import subprocess
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["python", "-m", "backend.pipelines.fetch_lyrics"],
+                capture_output=True, text=True
+            )
+            tail = (result.stdout or result.stderr or "")[-800:]
+            if result.returncode != 0:
+                _lyrics_fetch_last_error = f"Exit {result.returncode}: {(result.stderr or result.stdout or 'no output')[-400:]}"
+                print(f"[lyrics] fetch FAILED (exit {result.returncode}):", tail)
+            else:
+                print("[lyrics] fetch done:", tail)
+        except Exception as e:
+            _lyrics_fetch_last_error = str(e)
+            print(f"[lyrics] fetch exception: {e}")
+        finally:
+            _lyrics_fetch_running = False
+
+    asyncio.create_task(run())
+    return {"status": "fetching"}
+
+
+class MoodUpdateRequest(BaseModel):
+    tags: list[str]
+
+
+@app.get("/mood")
+def get_mood(unreviewed: bool = False, tag: str | None = None, limit: int = 200):
+    """Return mood-tagged tracks, sorted by confidence (uncertain first)."""
+    conn = db()
+
+    conditions = []
+    params = []
+
+    if unreviewed:
+        conditions.append("tm.overridden = FALSE")
+    if tag:
+        conditions.append("? = ANY(tm.tags)")
+        params.append(tag)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    rows = conn.execute(f"""
+        SELECT
+            tm.track,
+            tm.artist,
+            tm.tags,
+            tm.scores,
+            tm.overridden,
+            COUNT(s.scrobbled_at) AS play_count
+        FROM track_mood tm
+        LEFT JOIN raw_scrobbles s ON LOWER(s.track) = LOWER(tm.track)
+                                  AND LOWER(s.artist) = LOWER(tm.artist)
+        {where}
+        GROUP BY tm.track, tm.artist, tm.tags, tm.scores, tm.overridden
+        ORDER BY tm.overridden ASC, play_count DESC
+        LIMIT ?
+    """, params + [limit]).fetchall()
+    conn.close()
+
+    result = []
+    for track, artist, tags, scores_raw, overridden, play_count in rows:
+        scores = {}
+        try:
+            scores = json.loads(scores_raw) if scores_raw else {}
+        except Exception:
+            pass
+
+        if tag and tags and scores:
+            confidence = scores.get(tag, 0.0)
+        elif tags and scores:
+            relevant = [scores.get(t, 0.0) for t in (tags or [])]
+            confidence = round(sum(relevant) / len(relevant), 3) if relevant else 0.0
+        else:
+            confidence = 0.0
+
+        result.append({
+            "track":      track,
+            "artist":     artist,
+            "tags":       tags or [],
+            "confidence": round(confidence, 3),
+            "play_count": play_count,
+            "overridden": overridden,
+        })
+
+    # Sort: unreviewed (overridden=False) first, within those lowest confidence first
+    result.sort(key=lambda r: (r["overridden"], r["confidence"]))
+    return result
+
+
+@app.put("/mood/update")
+def update_mood(track: str, artist: str, body: MoodUpdateRequest):
+    """Override mood tags for a track. Sets overridden=TRUE."""
+    conn = db()
+    conn.execute("""
+        UPDATE track_mood
+        SET tags = ?, overridden = TRUE, analyzed_at = ?
+        WHERE track = ? AND artist = ?
+    """, (body.tags, datetime.now(tz=timezone.utc), track, artist))
+    conn.close()
+    return {"track": track, "artist": artist, "tags": body.tags, "overridden": True}
 
 
 @app.post("/pipelines/enrichment/clear-no-data", status_code=200)

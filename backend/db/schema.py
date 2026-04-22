@@ -236,6 +236,34 @@ def create_schema():
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS track_lyrics (
+            track       VARCHAR NOT NULL,
+            artist      VARCHAR NOT NULL,
+            lyrics      TEXT,
+            source      VARCHAR,
+            fetched_at  TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (track, artist)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS track_mood (
+            track       VARCHAR NOT NULL,
+            artist      VARCHAR NOT NULL,
+            tags        VARCHAR[],
+            scores      JSON,
+            model       VARCHAR,
+            overridden  BOOLEAN DEFAULT FALSE,
+            analyzed_at TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (track, artist)
+        )
+    """)
+    try:
+        conn.execute("ALTER TABLE track_mood ADD COLUMN IF NOT EXISTS overridden BOOLEAN DEFAULT FALSE")
+    except Exception:
+        pass
+
     # -------------------------------------------------------------------------
     # taste_tags — the cross-domain junction table
     # Maps both books and artists to a shared tag/genre namespace.

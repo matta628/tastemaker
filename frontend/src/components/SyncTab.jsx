@@ -56,6 +56,7 @@ export function SyncTab() {
     goodreadsState, guitarState,
     uploadGoodreads, uploadGuitar,
     mbState, triggerMusicBrainz,
+    lyricsFetchState, triggerLyricsFetch,
   } = useChatContext()
 
   if (import.meta.env.VITE_DEMO_MODE === 'true') {
@@ -284,6 +285,69 @@ export function SyncTab() {
             {status.musicbrainz.last_fetched_at && mbState !== 'running' && (
               <p className="text-xs text-zinc-600">Last run: {formatAge(status.musicbrainz.days_ago)}</p>
             )}
+          </div>
+        ) : (
+          <div className="bg-zinc-900 rounded-xl p-4 text-zinc-600 text-sm animate-pulse">Loading…</div>
+        )}
+      </section>
+
+      {/* ── Lyrics ── */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-zinc-100 font-semibold">Lyrics</h3>
+            <p className="text-xs text-zinc-500 mt-0.5">Fetches full lyrics for every track — powers mood analysis</p>
+          </div>
+          <button
+            onClick={triggerLyricsFetch}
+            disabled={lyricsFetchState === 'running'}
+            className="text-sm bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 px-4 py-1.5 rounded-lg transition-colors shrink-0 ml-4"
+          >
+            {lyricsFetchState === 'running' ? '◈ Fetching…' : lyricsFetchState === 'error' ? '↻ Retry' : lyricsFetchState === 'done' ? '✓ Done' : '◈ Fetch lyrics'}
+          </button>
+        </div>
+
+        {status?.lyrics ? (
+          <div className="bg-zinc-900 rounded-xl p-4 flex flex-col gap-3">
+            <div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-zinc-300">
+                  Lyrics fetched
+                  <span className="text-zinc-600 ml-2 text-xs">lyrics.ovh · free, no key</span>
+                </span>
+                <span className="text-zinc-400 text-xs tabular-nums">
+                  {status.lyrics.fetched.toLocaleString()} / {status.lyrics.total.toLocaleString()}
+                  <span className="text-zinc-600 ml-1.5">{status.lyrics.pct}%</span>
+                </span>
+              </div>
+              <ProgressBar pct={status.lyrics.pct} />
+            </div>
+            {status.lyrics.skipped > 0 && (
+              <p className="text-xs text-zinc-600">
+                {status.lyrics.skipped.toLocaleString()} tracks skipped (instrumentals, obscure tracks)
+              </p>
+            )}
+            {lyricsFetchState === 'running' && (
+              <p className="text-xs text-zinc-500 animate-pulse">
+                Fetching — ~0.5s per track, safe to navigate away. Can take hours for a full library.
+              </p>
+            )}
+            {lyricsFetchState === 'error' && status.lyrics.last_error && (
+              <p className="text-xs text-red-400 font-mono break-all">{status.lyrics.last_error}</p>
+            )}
+            {status.lyrics.last_fetched_at && lyricsFetchState !== 'running' && (
+              <p className="text-xs text-zinc-600">Last run: {formatAge(status.lyrics.days_ago)}</p>
+            )}
+            {/* Mood analysis info box */}
+            <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-lg px-3 py-3 mt-1">
+              <p className="text-xs text-zinc-400 font-medium mb-1">Mood analysis runs on your laptop</p>
+              <p className="text-xs text-zinc-600 mb-2">Requires ~180MB model, too heavy for the Pi.</p>
+              <pre className="text-xs text-zinc-400 whitespace-pre-wrap font-mono leading-relaxed">
+                {`pip install transformers torch
+python -m backend.pipelines.analyze_mood`}
+              </pre>
+              <p className="text-xs text-zinc-600 mt-2">Then export the parquet and scp it to the Pi. See project docs for the full transfer commands.</p>
+            </div>
           </div>
         ) : (
           <div className="bg-zinc-900 rounded-xl p-4 text-zinc-600 text-sm animate-pulse">Loading…</div>

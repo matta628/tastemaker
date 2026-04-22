@@ -10,6 +10,7 @@ import { LyricsTape } from './components/LyricsTape'
 import { Vibes } from './components/Vibes'
 import { PlaylistCreator } from './components/PlaylistCreator'
 import { SyncTab } from './components/SyncTab'
+import { MoodReview } from './components/MoodReview'
 import { useLyrics } from './components/useLyrics'
 import { SyncButton } from './components/SyncButton'
 import { StaleBanner } from './components/StaleBanner'
@@ -22,6 +23,7 @@ const NAV = [
   { id: 'Playlist',  icon: '♫',  label: 'Playlist'  },
   { id: 'Chat',      icon: '✦',  label: 'Chat'       },
   { id: 'Vibes',     icon: '♪',  label: 'Vibes'      },
+  { id: 'Mood',      icon: '♥',  label: 'Mood'       },
   { id: 'Sync',      icon: '↻',  label: 'Sync'       },
 ]
 
@@ -213,6 +215,8 @@ function AppInner() {
             <div className="max-w-lg">
               <SongForm onSave={handleAdd} songs={songs} />
             </div>
+          ) : activeTab === 'Mood' ? (
+            <MoodReview />
           ) : activeTab === 'Sync' ? (
             <SyncTab />
           ) : activeTab === 'Playlist' ? (

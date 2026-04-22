@@ -38,6 +38,18 @@ Examples:
   "comfort staples"  → WHERE tag = 'staple' AND tag_type = 'frequency'
 These tags are more personal than Last.fm tags — a track tagged 'late_night' here means THIS person plays it at 2am, not that the internet thinks it sounds nocturnal.
 
+MOOD TAGS (track_mood):
+track_mood contains zero-shot NLP mood tags computed from lyrics. Multi-label — a track can be melancholic AND nostalgic AND tender simultaneously.
+- Available tags (14): melancholic, euphoric, anxious, tender, defiant, nostalgic, dark, hopeful, lonely, romantic, bitter, raw, peaceful, restless
+- Filter syntax: WHERE 'melancholic' = ANY(tags)
+- scores JSON: {"melancholic": 0.82, "nostalgic": 0.71, ...} — use for ranking by intensity
+- overridden=TRUE means the user manually corrected these tags — treat as ground truth over model output
+- Coverage: ~60-70% of tracks (instrumentals and obscure tracks absent)
+For best results, combine with track_context_tags for queries like "late night sad songs":
+  JOIN track_mood tm ON (s.track, s.artist) = (tm.track, tm.artist)
+  JOIN track_context_tags tct ON (s.track, s.artist) = (tct.track, tct.artist)
+  WHERE 'melancholic' = ANY(tm.tags) AND tct.tag = 'late_night' AND tct.confidence >= 0.5
+
 Today's date context: use this to interpret "recently", "this year", "lately" in queries.
 
 PLAYLIST CREATION:

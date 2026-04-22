@@ -330,7 +330,8 @@ export function ChatProvider({ children }) {
   const [enrichStuck,    setEnrichStuck]    = useState(false)
   const [goodreadsState, setGoodreadsState] = useState('idle')
   const [guitarState,    setGuitarState]    = useState('idle')
-  const [mbState,        setMbState]        = useState('idle')
+  const [mbState,           setMbState]           = useState('idle')
+  const [lyricsFetchState,  setLyricsFetchState]  = useState('idle')
   const enrichStateRef  = useRef('idle')
   const prevPctsRef     = useRef(null)
   const stuckCountRef   = useRef(0)
@@ -366,6 +367,11 @@ export function ChatProvider({ children }) {
       } else {
         setMbState(prev => prev === 'running' ? (data.musicbrainz?.last_error ? 'error' : 'done') : prev)
       }
+      if (data.lyrics?.process_running) {
+        setLyricsFetchState(prev => prev === 'idle' ? 'running' : prev)
+      } else {
+        setLyricsFetchState(prev => prev === 'running' ? (data.lyrics?.last_error ? 'error' : 'done') : prev)
+      }
 
       if (enrichStateRef.current === 'running' && data.enrichment) {
         const e = data.enrichment
@@ -399,7 +405,7 @@ export function ChatProvider({ children }) {
   useEffect(() => {
     const running = syncState === 'running' || enrichState === 'running' ||
                     goodreadsState === 'running' || guitarState === 'running' ||
-                    mbState === 'running'
+                    mbState === 'running' || lyricsFetchState === 'running'
     if (running) {
       if (!pipelinePollRef.current) {
         pipelinePollRef.current = setInterval(fetchPipelineStatus, POLL_MS)
@@ -412,7 +418,7 @@ export function ChatProvider({ children }) {
       clearInterval(pipelinePollRef.current)
       pipelinePollRef.current = null
     }
-  }, [syncState, enrichState, goodreadsState, guitarState, mbState, fetchPipelineStatus])
+  }, [syncState, enrichState, goodreadsState, guitarState, mbState, lyricsFetchState, fetchPipelineStatus])
 
   useEffect(() => { fetchPipelineStatus() }, [fetchPipelineStatus])
 
@@ -461,6 +467,19 @@ export function ChatProvider({ children }) {
     }
   }, [mbState])
 
+  const triggerLyricsFetch = useCallback(async () => {
+    if (lyricsFetchState === 'running') return
+    try {
+      const res = await fetch(`${BASE}/pipelines/lyrics/fetch`, { method: 'POST' })
+      if (!res.ok) throw new Error()
+      const body = await res.json()
+      if (body.status !== 'already_running') setLyricsFetchState('running')
+    } catch {
+      setLyricsFetchState('error')
+      setTimeout(() => setLyricsFetchState('idle'), 4000)
+    }
+  }, [lyricsFetchState])
+
   const uploadGoodreads = useCallback(async (file) => {
     if (goodreadsState === 'running') return
     setGoodreadsState('running')
@@ -507,6 +526,7 @@ export function ChatProvider({ children }) {
       triggerSync, triggerEnrich, fetchPipelineStatus,
       goodreadsState, guitarState, uploadGoodreads, uploadGuitar,
       mbState, triggerMusicBrainz,
+      lyricsFetchState, triggerLyricsFetch,
     }}>
       {children}
     </ChatContext.Provider>
