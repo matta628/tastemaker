@@ -55,6 +55,7 @@ export function SyncTab() {
     triggerSync, triggerEnrich,
     goodreadsState, guitarState,
     uploadGoodreads, uploadGuitar,
+    mbState, triggerMusicBrainz,
   } = useChatContext()
 
   if (import.meta.env.VITE_DEMO_MODE === 'true') {
@@ -167,7 +168,7 @@ export function SyncTab() {
             {[
               { key: 'artist_tags',    label: 'Artist tags',     desc: 'genre · mood · era' },
               { key: 'artist_similar', label: 'Similar artists', desc: 'taste graph' },
-              { key: 'track_tags',     label: 'Track tags',      desc: 'seasonal · mood' },
+              { key: 'track_tags',     label: 'Track tags',      desc: 'Last.fm community tags' },
             ].map(({ key, label, desc }) => {
               const p = enrich[key]
               return (
@@ -186,6 +187,21 @@ export function SyncTab() {
                 </div>
               )
             })}
+
+            {/* Context tags — personal behavior derived, no pct denominator */}
+            {enrich.context_tags && (
+              <div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-zinc-300">
+                    Personal context tags
+                    <span className="text-zinc-600 ml-2 text-xs">time · season · frequency</span>
+                  </span>
+                  <span className="text-zinc-400 text-xs tabular-nums">
+                    {enrich.context_tags.done.toLocaleString()} tracks
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Status messages */}
             {enrichRunning && !enrichStuck && (
@@ -220,6 +236,54 @@ export function SyncTab() {
               </p>
             )}
 
+          </div>
+        ) : (
+          <div className="bg-zinc-900 rounded-xl p-4 text-zinc-600 text-sm animate-pulse">Loading…</div>
+        )}
+      </section>
+
+      {/* ── MusicBrainz ── */}
+      <section>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-zinc-100 font-semibold">MusicBrainz</h3>
+            <p className="text-xs text-zinc-500 mt-0.5">Artist type, country, formed year — improves discovery filtering</p>
+          </div>
+          <button
+            onClick={triggerMusicBrainz}
+            disabled={mbState === 'running'}
+            className="text-sm bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 text-zinc-200 px-4 py-1.5 rounded-lg transition-colors shrink-0 ml-4"
+          >
+            {mbState === 'running' ? '◈ Running…' : mbState === 'error' ? '↻ Retry' : mbState === 'done' ? '✓ Done' : '◈ Run'}
+          </button>
+        </div>
+
+        {status?.musicbrainz ? (
+          <div className="bg-zinc-900 rounded-xl p-4 flex flex-col gap-3">
+            <div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-zinc-300">
+                  Artists enriched
+                  <span className="text-zinc-600 ml-2 text-xs">type · country · genre</span>
+                </span>
+                <span className="text-zinc-400 text-xs tabular-nums">
+                  {status.musicbrainz.artist_count.done.toLocaleString()} / {status.musicbrainz.artist_count.total.toLocaleString()}
+                  <span className="text-zinc-600 ml-1.5">{status.musicbrainz.artist_count.pct}%</span>
+                </span>
+              </div>
+              <ProgressBar pct={status.musicbrainz.artist_count.pct} />
+            </div>
+            {mbState === 'running' && (
+              <p className="text-xs text-zinc-500 animate-pulse">
+                Running — ~30–40 min for first full run (1 req/sec MusicBrainz limit). Safe to navigate away.
+              </p>
+            )}
+            {mbState === 'error' && status.musicbrainz.last_error && (
+              <p className="text-xs text-red-400 font-mono break-all">{status.musicbrainz.last_error}</p>
+            )}
+            {status.musicbrainz.last_fetched_at && mbState !== 'running' && (
+              <p className="text-xs text-zinc-600">Last run: {formatAge(status.musicbrainz.days_ago)}</p>
+            )}
           </div>
         ) : (
           <div className="bg-zinc-900 rounded-xl p-4 text-zinc-600 text-sm animate-pulse">Loading…</div>

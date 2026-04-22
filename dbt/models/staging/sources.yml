@@ -37,3 +37,16 @@ sources:
             tests:
               - accepted_values:
                   values: ['want_to_learn', 'learning', 'learned', 'abandoned']
+
+  - name: enrichment
+    schema: main
+    tables:
+      - name: artist_tags
+        description: "Last.fm genre/mood tags per artist from enrichment pipeline"
+        columns:
+          - name: artist_name
+            tests: [not_null]
+          - name: tag
+            tests: [not_null]
+          - name: weight
+            tests: [not_null]

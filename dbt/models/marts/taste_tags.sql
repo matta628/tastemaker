@@ -27,18 +27,19 @@ deduped_book_tags AS (
       AND LENGTH(tag) < 100     -- filter noise
 ),
 
--- Artist tags placeholder — will be enriched by Last.fm tag API in a later phase.
--- For now, surface top artists as entities with no tags yet.
--- The agent can still reference artists via artist_stats.
+-- Artist tags from Last.fm enrichment, filtered to meaningfully-played artists.
 artist_stubs AS (
-    SELECT
-        artist           AS entity_id,
+    SELECT DISTINCT
+        at.artist_name   AS entity_id,
         'artist'         AS entity_type,
-        NULL             AS tag,
-        'placeholder'    AS source
-    FROM {{ ref('artist_stats') }}
-    WHERE total_plays >= 10
-    LIMIT 0   -- disabled until Last.fm tag enrichment is added
+        at.tag           AS tag,
+        'lastfm'         AS source
+    FROM {{ source('enrichment', 'artist_tags') }} at
+    INNER JOIN {{ ref('artist_stats') }} stats
+        ON at.artist_name = stats.artist
+    WHERE stats.total_plays >= 10
+      AND at.weight >= 10
+      AND at.tag != ''
 )
 
 SELECT * FROM deduped_book_tags

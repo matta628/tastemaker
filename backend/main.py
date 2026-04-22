@@ -56,6 +56,8 @@ _goodreads_running: bool = False
 _goodreads_last_error: str | None = None
 _guitar_running: bool = False
 _guitar_last_error: str | None = None
+_mb_running: bool = False
+_mb_last_error: str | None = None
 
 
 def db():
@@ -419,13 +421,15 @@ def pipelines_status():
     total_tracks  = conn.execute("""
         SELECT COUNT(*) FROM (
             SELECT track, artist FROM raw_scrobbles
-            GROUP BY track, artist HAVING COUNT(*) >= 5
+            GROUP BY track, artist HAVING COUNT(*) >= 2
         )
     """).fetchone()[0]
 
-    done_artist_tags   = conn.execute("SELECT COUNT(DISTINCT artist_name) FROM artist_tags").fetchone()[0]
+    done_artist_tags    = conn.execute("SELECT COUNT(DISTINCT artist_name) FROM artist_tags").fetchone()[0]
     done_artist_similar = conn.execute("SELECT COUNT(DISTINCT artist_name) FROM artist_similar").fetchone()[0]
-    done_track_tags    = conn.execute("SELECT COUNT(DISTINCT track || artist) FROM track_tags").fetchone()[0]
+    done_track_tags     = conn.execute("SELECT COUNT(DISTINCT track || artist) FROM track_tags").fetchone()[0]
+    done_context_tags   = conn.execute("SELECT COUNT(DISTINCT track || artist) FROM track_context_tags").fetchone()[0]
+    done_mb             = conn.execute("SELECT COUNT(*) FROM artist_mb").fetchone()[0]
 
     # Goodreads book count
     total_books = conn.execute("SELECT COUNT(*) FROM raw_books").fetchone()[0]
@@ -447,6 +451,13 @@ def pipelines_status():
             "artist_tags":    {"done": done_artist_tags,    "total": total_artists, "pct": pct(done_artist_tags,    total_artists)},
             "artist_similar": {"done": done_artist_similar, "total": total_artists, "pct": pct(done_artist_similar, total_artists)},
             "track_tags":     {"done": done_track_tags,     "total": total_tracks,  "pct": pct(done_track_tags,     total_tracks)},
+            "context_tags":   {"done": done_context_tags,   "total": total_tracks},
+        },
+        "musicbrainz": {
+            **sync_entry("musicbrainz"),
+            "process_running": _mb_running,
+            "last_error":      _mb_last_error,
+            "artist_count":    {"done": done_mb, "total": total_artists, "pct": pct(done_mb, total_artists)},
         },
         "goodreads": {
             **sync_entry("goodreads"),
@@ -619,6 +630,58 @@ async def upload_guitar(file: UploadFile = File(...)):
 
     asyncio.create_task(run())
     return {"status": "importing"}
+
+
+@app.post("/pipelines/musicbrainz/enrich", status_code=202)
+async def trigger_musicbrainz_enrich():
+    """Kick off MusicBrainz artist enrichment in the background (~30-40 min for full run)."""
+    global _mb_running, _mb_last_error
+    if _mb_running:
+        return {"status": "already_running"}
+
+    async def run():
+        global _mb_running, _mb_last_error
+        _mb_running = True
+        _mb_last_error = None
+        try:
+            import subprocess
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["python", "-m", "backend.pipelines.musicbrainz"],
+                capture_output=True, text=True
+            )
+            tail = (result.stdout or result.stderr or "")[-800:]
+            if result.returncode != 0:
+                _mb_last_error = f"Exit {result.returncode}: {(result.stderr or result.stdout or 'no output')[-400:]}"
+                print(f"[musicbrainz] enrich FAILED (exit {result.returncode}):", tail)
+            else:
+                print("[musicbrainz] enrich done:", tail)
+        except Exception as e:
+            _mb_last_error = str(e)
+            print(f"[musicbrainz] enrich exception: {e}")
+        finally:
+            _mb_running = False
+
+    asyncio.create_task(run())
+    return {"status": "enriching"}
+
+
+@app.post("/pipelines/enrichment/clear-no-data", status_code=200)
+def clear_no_data_skips():
+    """
+    Clear enrichment_skipped entries with reason='no_data' so re-enrichment will
+    retry them with updated thresholds. Does NOT touch max_retries entries.
+    Call once after lowering Last.fm vote thresholds.
+    """
+    conn = db()
+    result = conn.execute("""
+        DELETE FROM enrichment_skipped
+        WHERE reason = 'no_data'
+          AND entity_type IN ('artist_tags', 'track_tags')
+    """)
+    deleted = conn.execute("SELECT changes()").fetchone()[0]
+    conn.close()
+    return {"deleted": deleted}
 
 
 # ---------------------------------------------------------------------------

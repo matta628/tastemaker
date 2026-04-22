@@ -182,6 +182,31 @@ def create_schema():
     """)
 
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS track_context_tags (
+            track        VARCHAR NOT NULL,
+            artist       VARCHAR NOT NULL,
+            tag          VARCHAR NOT NULL,   -- e.g. 'late_night', 'winter', 'staple'
+            tag_type     VARCHAR NOT NULL,   -- 'time_of_day' | 'season' | 'frequency'
+            confidence   FLOAT NOT NULL,     -- 0-1: fraction of plays in that bucket
+            play_count   INTEGER NOT NULL,
+            PRIMARY KEY (track, artist, tag)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS artist_mb (
+            artist_name   VARCHAR PRIMARY KEY,
+            mb_artist_id  VARCHAR,
+            artist_type   VARCHAR,           -- 'Person', 'Group', 'Orchestra', 'Choir'
+            country       VARCHAR,           -- ISO 3166-1 alpha-2, e.g. 'US', 'GB'
+            formed_year   INTEGER,
+            ended         BOOLEAN DEFAULT FALSE,
+            tags          VARCHAR[],         -- MusicBrainz genre tags
+            fetched_at    TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS playlists (
             playlist_id  VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
             name         VARCHAR NOT NULL,

@@ -288,7 +288,7 @@ def enrich_artist_tags(conn, api_key: str, rl: _RateLimiter):
             inserted = 0
             for t in tags:
                 try:
-                    if int(t.get("count", 0)) >= 10:
+                    if int(t.get("count", 0)) >= 5:
                         conn.execute("""
                             INSERT INTO artist_tags (artist_name, tag, weight)
                             VALUES (?, ?, ?)
@@ -355,11 +355,11 @@ def enrich_artist_similar(conn, api_key: str, rl: _RateLimiter):
 
 
 def enrich_track_tags(conn, api_key: str, rl: _RateLimiter):
-    """Fetch Last.fm tags for tracks scrobbled 5+ times (the ones that matter)."""
+    """Fetch Last.fm tags for tracks scrobbled 2+ times."""
     tracks = conn.execute("""
         SELECT track, artist FROM raw_scrobbles
         GROUP BY track, artist
-        HAVING COUNT(*) >= 3
+        HAVING COUNT(*) >= 2
         AND (track, artist) NOT IN (
             SELECT DISTINCT track, artist FROM track_tags
         )
@@ -381,7 +381,7 @@ def enrich_track_tags(conn, api_key: str, rl: _RateLimiter):
             inserted = 0
             for t in tags:
                 try:
-                    if int(t.get("count", 0)) >= 10:
+                    if int(t.get("count", 0)) >= 5:
                         conn.execute("""
                             INSERT INTO track_tags (track, artist, tag, weight)
                             VALUES (?, ?, ?, ?)
@@ -402,6 +402,110 @@ def enrich_track_tags(conn, api_key: str, rl: _RateLimiter):
     log.info("[enrich] track_tags: done")
 
 
+def refresh_context_tags(conn):
+    """
+    Compute personal listening-behavior tags from scrobble timestamps.
+    Pure DuckDB — no API calls. Safe to re-run (full replace).
+
+    Three tag types:
+      time_of_day : late_night / morning / afternoon / evening
+                    (emitted when ≥35% of plays fall in that hour bucket, min 5 plays)
+      season      : winter / spring / summer / fall
+                    (same 35% threshold, min 5 plays)
+      frequency   : staple (≥20 plays) / familiar (5-19) / deep_cut (<5)
+                    (all tracks, confidence = 1.0)
+    """
+    log.info("[context_tags] Refreshing track_context_tags...")
+    conn.execute("DELETE FROM track_context_tags")
+    conn.execute("""
+        INSERT INTO track_context_tags (track, artist, tag, tag_type, confidence, play_count)
+
+        -- ── time_of_day ─────────────────────────────────────────────────────
+        WITH play_counts AS (
+            SELECT track, artist, COUNT(*) AS total_plays
+            FROM raw_scrobbles
+            GROUP BY track, artist
+        ),
+        tod_buckets AS (
+            SELECT
+                s.track,
+                s.artist,
+                CASE
+                    WHEN EXTRACT(HOUR FROM s.scrobbled_at) BETWEEN 6  AND 11 THEN 'morning'
+                    WHEN EXTRACT(HOUR FROM s.scrobbled_at) BETWEEN 12 AND 17 THEN 'afternoon'
+                    WHEN EXTRACT(HOUR FROM s.scrobbled_at) BETWEEN 18 AND 22 THEN 'evening'
+                    ELSE 'late_night'
+                END AS tag,
+                COUNT(*) AS bucket_plays
+            FROM raw_scrobbles s
+            GROUP BY s.track, s.artist, tag
+        ),
+        tod_tags AS (
+            SELECT
+                t.track, t.artist,
+                t.tag,
+                'time_of_day'                         AS tag_type,
+                ROUND(t.bucket_plays::FLOAT / p.total_plays, 3) AS confidence,
+                p.total_plays                         AS play_count
+            FROM tod_buckets t
+            JOIN play_counts p ON t.track = p.track AND t.artist = p.artist
+            WHERE p.total_plays >= 5
+              AND t.bucket_plays::FLOAT / p.total_plays >= 0.35
+        ),
+
+        -- ── season ──────────────────────────────────────────────────────────
+        season_buckets AS (
+            SELECT
+                s.track,
+                s.artist,
+                CASE
+                    WHEN EXTRACT(MONTH FROM s.scrobbled_at) IN (12, 1, 2) THEN 'winter'
+                    WHEN EXTRACT(MONTH FROM s.scrobbled_at) IN (3, 4, 5)  THEN 'spring'
+                    WHEN EXTRACT(MONTH FROM s.scrobbled_at) IN (6, 7, 8)  THEN 'summer'
+                    ELSE 'fall'
+                END AS tag,
+                COUNT(*) AS bucket_plays
+            FROM raw_scrobbles s
+            GROUP BY s.track, s.artist, tag
+        ),
+        season_tags AS (
+            SELECT
+                sb.track, sb.artist,
+                sb.tag,
+                'season'                                          AS tag_type,
+                ROUND(sb.bucket_plays::FLOAT / p.total_plays, 3) AS confidence,
+                p.total_plays                                     AS play_count
+            FROM season_buckets sb
+            JOIN play_counts p ON sb.track = p.track AND sb.artist = p.artist
+            WHERE p.total_plays >= 5
+              AND sb.bucket_plays::FLOAT / p.total_plays >= 0.35
+        ),
+
+        -- ── frequency ───────────────────────────────────────────────────────
+        freq_tags AS (
+            SELECT
+                track, artist,
+                CASE
+                    WHEN total_plays >= 20 THEN 'staple'
+                    WHEN total_plays >= 5  THEN 'familiar'
+                    ELSE 'deep_cut'
+                END AS tag,
+                'frequency' AS tag_type,
+                1.0         AS confidence,
+                total_plays AS play_count
+            FROM play_counts
+        )
+
+        SELECT track, artist, tag, tag_type, confidence, play_count FROM tod_tags
+        UNION ALL
+        SELECT track, artist, tag, tag_type, confidence, play_count FROM season_tags
+        UNION ALL
+        SELECT track, artist, tag, tag_type, confidence, play_count FROM freq_tags
+    """)
+    count = conn.execute("SELECT COUNT(*) FROM track_context_tags").fetchone()[0]
+    log.info(f"[context_tags] Done — {count} rows inserted.")
+
+
 def enrich(api_key: str | None = None):
     """Run all enrichment passes. Safe to re-run — skips already-enriched entries."""
     if not api_key:
@@ -416,6 +520,7 @@ def enrich(api_key: str | None = None):
     enrich_artist_tags(conn, api_key, rl)
     enrich_artist_similar(conn, api_key, rl)
     enrich_track_tags(conn, api_key, rl)
+    refresh_context_tags(conn)
     # Record completion so the status endpoint knows when enrichment last ran
     conn.execute("""
         INSERT INTO pipeline_state (pipeline_name, last_fetched_at)

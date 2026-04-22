@@ -30,7 +30,18 @@ def query_database(sql: str) -> str:
     - taste_tags(tag_id, entity_type, entity_id, tag, source)
     - artist_tags(artist_name, tag, weight 0-100)         -- Last.fm genre/mood tags per artist
     - artist_similar(artist_name, similar_artist, similarity 0-1) -- taste graph
-    - track_tags(track, artist, tag, weight 0-100)        -- per-track mood/season tags (5+ scrobbles only)
+    - track_tags(track, artist, tag, weight 0-100)        -- per-track mood/season tags (2+ scrobbles)
+    - track_context_tags(track, artist, tag, tag_type, confidence 0-1, play_count)
+      -- behavioral tags derived from YOUR scrobble timestamps (not community data)
+      -- tag_type='time_of_day': tags = late_night/morning/afternoon/evening (based on hour you actually played it)
+      -- tag_type='season': tags = winter/spring/summer/fall (based on month distribution)
+      -- tag_type='frequency': tags = staple(20+ plays)/familiar(5-19)/deep_cut(<5)
+      -- confidence = fraction of plays in that bucket. Use >= 0.5 for strong signals.
+      -- Only tracks with 5+ plays get time_of_day/season tags. frequency tags cover all tracks.
+    - artist_mb(artist_name, mb_artist_id, artist_type, country, formed_year, ended, tags[])
+      -- MusicBrainz metadata: artist_type distinguishes 'Group' vs 'Person' (solo projects)
+      -- tags[]: authoritative genre list. Query: WHERE 'jazz' = ANY(tags)
+      -- Use artist_type='Group' to filter out solo projects when expanding via artist_similar
 
     Always query real data before making any recommendation.
     Keep queries focused — avoid SELECT * on large tables like raw_scrobbles.
@@ -69,9 +80,13 @@ def build_playlist(name: str, tracks: list[dict]) -> str:
     3. Order tracks thoughtfully — energy arc, not alphabetical
 
     For discovery requests ("new songs", "haven't heard", "fresh picks"):
-    - Use artist_similar to find adjacent artists not in the user's scrobble history
-    - Use track_similar_lookup on their favorite tracks to surface unfamiliar songs
-    - Cross-reference raw_scrobbles to confirm a track hasn't been played (or has low play count)
+    - Use discover_tracks(genre_tag) as the primary tool — it automatically excludes artists
+      the user has ever scrobbled, not just unscrobbled tracks. This prevents solo projects
+      and side projects of known artists from slipping through.
+    - If using artist_similar: query `SELECT DISTINCT LOWER(artist) FROM raw_scrobbles` first,
+      then exclude any similar_artist whose name appears in that set (exact or fuzzy match).
+      Solo projects, supergroups, and aliases of known artists are a common false positive.
+    - Cross-reference raw_scrobbles at the ARTIST level, not just the track level.
     """
     tracks = tracks[:250]  # cap to prevent URL length issues with iOS Shortcuts
     url = build_shortcuts_url(name, tracks)
@@ -196,7 +211,9 @@ def discover_tracks(genre_tag: str, limit: int = 30) -> str:
     if not candidates:
         return f"No tracks found for genre '{genre_tag}'."
 
-    # Step 3: anti-join against raw_scrobbles in DuckDB
+    # Step 3: anti-join against raw_scrobbles at the ARTIST level.
+    # Filtering only by (track, artist) pair would let through solo projects and
+    # side projects of known artists — exclude any artist with any scrobbles at all.
     try:
         conn = duckdb.connect(str(DB_PATH), read_only=True)
         df_candidates = pd.DataFrame(candidates)
@@ -206,8 +223,7 @@ def discover_tracks(genre_tag: str, limit: int = 30) -> str:
             FROM _candidates c
             WHERE NOT EXISTS (
                 SELECT 1 FROM raw_scrobbles s
-                WHERE LOWER(s.track) = LOWER(c.title)
-                  AND LOWER(s.artist) = LOWER(c.artist)
+                WHERE LOWER(s.artist) = LOWER(c.artist)
             )
             ORDER BY c.plays DESC
             LIMIT ?
@@ -218,7 +234,7 @@ def discover_tracks(genre_tag: str, limit: int = 30) -> str:
 
     if result.empty:
         return (
-            f"All top tracks for '{genre_tag}' artists are already in your scrobble history. "
+            f"All top artists for '{genre_tag}' are already in your scrobble history. "
             "Try a sub-genre tag or call artist_top_tracks() on a specific artist to dig deeper."
         )
 
