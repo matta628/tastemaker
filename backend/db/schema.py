@@ -303,6 +303,215 @@ def create_schema():
         )
     """)
 
+    # -------------------------------------------------------------------------
+    # Stats tables — pre-aggregated, rebuilt after each Last.fm sync
+    # -------------------------------------------------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS artist_stats (
+            artist                VARCHAR PRIMARY KEY,
+            total_plays           INTEGER NOT NULL DEFAULT 0,
+            plays_7d              INTEGER NOT NULL DEFAULT 0,
+            plays_30d             INTEGER NOT NULL DEFAULT 0,
+            plays_90d             INTEGER NOT NULL DEFAULT 0,
+            plays_180d            INTEGER NOT NULL DEFAULT 0,
+            plays_1y              INTEGER NOT NULL DEFAULT 0,
+            plays_2y              INTEGER NOT NULL DEFAULT 0,
+            plays_5y              INTEGER NOT NULL DEFAULT 0,
+            plays_7d_prev         INTEGER NOT NULL DEFAULT 0,
+            plays_30d_prev        INTEGER NOT NULL DEFAULT 0,
+            plays_90d_prev        INTEGER NOT NULL DEFAULT 0,
+            plays_180d_prev       INTEGER NOT NULL DEFAULT 0,
+            plays_1y_prev         INTEGER NOT NULL DEFAULT 0,
+            plays_7d_delta        INTEGER NOT NULL DEFAULT 0,
+            plays_30d_delta       INTEGER NOT NULL DEFAULT 0,
+            plays_90d_delta       INTEGER NOT NULL DEFAULT 0,
+            plays_180d_delta      INTEGER NOT NULL DEFAULT 0,
+            plays_1y_delta        INTEGER NOT NULL DEFAULT 0,
+            rank_all_time         INTEGER,
+            rank_7d               INTEGER,
+            rank_30d              INTEGER,
+            rank_90d              INTEGER,
+            rank_180d             INTEGER,
+            rank_1y               INTEGER,
+            rank_7d_delta         INTEGER,
+            rank_30d_delta        INTEGER,
+            rank_90d_delta        INTEGER,
+            first_heard           TIMESTAMPTZ,
+            last_heard            TIMESTAMPTZ,
+            days_since_last_heard FLOAT,
+            unique_tracks         INTEGER NOT NULL DEFAULT 0,
+            unique_albums         INTEGER NOT NULL DEFAULT 0,
+            longest_streak_days   INTEGER NOT NULL DEFAULT 0,
+            current_streak_days   INTEGER NOT NULL DEFAULT 0,
+            peak_week_date        DATE,
+            peak_week_plays       INTEGER,
+            refreshed_at          TIMESTAMPTZ
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS album_stats (
+            album                 VARCHAR NOT NULL,
+            artist                VARCHAR NOT NULL,
+            total_plays           INTEGER NOT NULL DEFAULT 0,
+            plays_7d              INTEGER NOT NULL DEFAULT 0,
+            plays_30d             INTEGER NOT NULL DEFAULT 0,
+            plays_90d             INTEGER NOT NULL DEFAULT 0,
+            plays_180d            INTEGER NOT NULL DEFAULT 0,
+            plays_1y              INTEGER NOT NULL DEFAULT 0,
+            plays_2y              INTEGER NOT NULL DEFAULT 0,
+            plays_5y              INTEGER NOT NULL DEFAULT 0,
+            plays_7d_prev         INTEGER NOT NULL DEFAULT 0,
+            plays_30d_prev        INTEGER NOT NULL DEFAULT 0,
+            plays_90d_prev        INTEGER NOT NULL DEFAULT 0,
+            plays_180d_prev       INTEGER NOT NULL DEFAULT 0,
+            plays_1y_prev         INTEGER NOT NULL DEFAULT 0,
+            plays_7d_delta        INTEGER NOT NULL DEFAULT 0,
+            plays_30d_delta       INTEGER NOT NULL DEFAULT 0,
+            plays_90d_delta       INTEGER NOT NULL DEFAULT 0,
+            plays_180d_delta      INTEGER NOT NULL DEFAULT 0,
+            plays_1y_delta        INTEGER NOT NULL DEFAULT 0,
+            rank_all_time         INTEGER,
+            rank_7d               INTEGER,
+            rank_30d              INTEGER,
+            rank_90d              INTEGER,
+            rank_180d             INTEGER,
+            rank_1y               INTEGER,
+            rank_7d_delta         INTEGER,
+            rank_30d_delta        INTEGER,
+            rank_90d_delta        INTEGER,
+            first_heard           TIMESTAMPTZ,
+            last_heard            TIMESTAMPTZ,
+            days_since_last_heard FLOAT,
+            unique_tracks         INTEGER NOT NULL DEFAULT 0,
+            longest_streak_days   INTEGER NOT NULL DEFAULT 0,
+            current_streak_days   INTEGER NOT NULL DEFAULT 0,
+            peak_week_date        DATE,
+            peak_week_plays       INTEGER,
+            refreshed_at          TIMESTAMPTZ,
+            PRIMARY KEY (album, artist)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS track_stats (
+            track                 VARCHAR NOT NULL,
+            artist                VARCHAR NOT NULL,
+            total_plays           INTEGER NOT NULL DEFAULT 0,
+            plays_7d              INTEGER NOT NULL DEFAULT 0,
+            plays_30d             INTEGER NOT NULL DEFAULT 0,
+            plays_90d             INTEGER NOT NULL DEFAULT 0,
+            plays_180d            INTEGER NOT NULL DEFAULT 0,
+            plays_1y              INTEGER NOT NULL DEFAULT 0,
+            plays_2y              INTEGER NOT NULL DEFAULT 0,
+            plays_5y              INTEGER NOT NULL DEFAULT 0,
+            plays_7d_prev         INTEGER NOT NULL DEFAULT 0,
+            plays_30d_prev        INTEGER NOT NULL DEFAULT 0,
+            plays_90d_prev        INTEGER NOT NULL DEFAULT 0,
+            plays_180d_prev       INTEGER NOT NULL DEFAULT 0,
+            plays_1y_prev         INTEGER NOT NULL DEFAULT 0,
+            plays_7d_delta        INTEGER NOT NULL DEFAULT 0,
+            plays_30d_delta       INTEGER NOT NULL DEFAULT 0,
+            plays_90d_delta       INTEGER NOT NULL DEFAULT 0,
+            plays_180d_delta      INTEGER NOT NULL DEFAULT 0,
+            plays_1y_delta        INTEGER NOT NULL DEFAULT 0,
+            rank_all_time         INTEGER,
+            rank_7d               INTEGER,
+            rank_30d              INTEGER,
+            rank_90d              INTEGER,
+            rank_180d             INTEGER,
+            rank_1y               INTEGER,
+            rank_7d_delta         INTEGER,
+            rank_30d_delta        INTEGER,
+            rank_90d_delta        INTEGER,
+            first_heard           TIMESTAMPTZ,
+            last_heard            TIMESTAMPTZ,
+            days_since_last_heard FLOAT,
+            longest_streak_days   INTEGER NOT NULL DEFAULT 0,
+            current_streak_days   INTEGER NOT NULL DEFAULT 0,
+            peak_week_date        DATE,
+            peak_week_plays       INTEGER,
+            refreshed_at          TIMESTAMPTZ,
+            PRIMARY KEY (track, artist)
+        )
+    """)
+
+    # -------------------------------------------------------------------------
+    # User API tables — persists analytics page configuration
+    # -------------------------------------------------------------------------
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_dashboards (
+            dashboard_id  VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            name          VARCHAR NOT NULL,
+            created_at    TIMESTAMPTZ DEFAULT now(),
+            updated_at    TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dashboard_charts (
+            chart_id       VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            dashboard_id   VARCHAR NOT NULL REFERENCES user_dashboards(dashboard_id),
+            predefined_id  VARCHAR,
+            is_custom      BOOLEAN NOT NULL DEFAULT FALSE,
+            chart_type     VARCHAR NOT NULL,
+            title          VARCHAR,
+            metric         VARCHAR,
+            timespan       VARCHAR,
+            top_n          INTEGER,
+            filters        JSON,
+            visible        BOOLEAN NOT NULL DEFAULT TRUE,
+            sort_order     INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS explore_layouts (
+            layout_id        VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            entity_type      VARCHAR NOT NULL CHECK (entity_type IN ('artist', 'album', 'track')),
+            predefined_id    VARCHAR,
+            is_custom        BOOLEAN NOT NULL DEFAULT FALSE,
+            pinned           BOOLEAN NOT NULL DEFAULT FALSE,
+            chart_type       VARCHAR NOT NULL,
+            metric           VARCHAR,
+            default_timespan VARCHAR,
+            visible          BOOLEAN NOT NULL DEFAULT TRUE,
+            sort_order       INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_reports (
+            report_id    VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            name         VARCHAR NOT NULL,
+            entity_type  VARCHAR NOT NULL CHECK (entity_type IN ('artist', 'album', 'track')),
+            columns      JSON,
+            filters      JSON,
+            sort         JSON,
+            set_id       VARCHAR,
+            created_at   TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_sets (
+            set_id       VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+            name         VARCHAR NOT NULL,
+            entity_type  VARCHAR NOT NULL CHECK (entity_type IN ('artist', 'album', 'track')),
+            created_at   TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS set_members (
+            set_id       VARCHAR NOT NULL REFERENCES user_sets(set_id),
+            entity_id    VARCHAR NOT NULL,
+            display_name VARCHAR NOT NULL,
+            added_at     TIMESTAMPTZ DEFAULT now(),
+            PRIMARY KEY (set_id, entity_id)
+        )
+    """)
+
     conn.close()
     print(f"Schema created at {DB_PATH}")
 

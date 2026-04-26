@@ -22,6 +22,8 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.secret")
 
+from backend.analytics import router as analytics_router
+
 LYRICS_CACHE = Path("lyrics_cache.json")
 LYRICS_CACHE_MAX_AGE_DAYS = 30  # invalidated by sync, not by age
 
@@ -36,6 +38,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Tastemaker API", version="0.2.0", lifespan=lifespan)
+app.include_router(analytics_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -548,11 +551,42 @@ async def trigger_lastfm_sync():
                 LYRICS_CACHE.unlink()
                 print("[lyrics] Cache invalidated after sync — rebuilding in background")
                 asyncio.create_task(_lyrics_background_fetch())
+            # Rebuild pre-aggregated stats tables
+            try:
+                from backend.pipelines.rebuild_stats import rebuild_stats_tables
+                await asyncio.to_thread(rebuild_stats_tables)
+            except Exception as e:
+                print(f"[rebuild_stats] Failed: {e}")
         finally:
             _sync_running = False
 
     asyncio.create_task(run())
     return {"status": "syncing"}
+
+
+_rebuild_running: bool = False
+
+@app.post("/analytics/rebuild-stats", status_code=202)
+async def trigger_rebuild_stats():
+    """Rebuild pre-aggregated stats tables (artist/album/track). Returns immediately."""
+    global _rebuild_running
+    if _rebuild_running:
+        return {"status": "already_running"}
+
+    async def run():
+        global _rebuild_running
+        _rebuild_running = True
+        try:
+            from backend.pipelines.rebuild_stats import rebuild_stats_tables
+            await asyncio.to_thread(rebuild_stats_tables)
+            print("[rebuild_stats] Done")
+        except Exception as e:
+            print(f"[rebuild_stats] Failed: {e}")
+        finally:
+            _rebuild_running = False
+
+    asyncio.create_task(run())
+    return {"status": "rebuilding"}
 
 
 @app.post("/pipelines/lastfm/enrich", status_code=202)
@@ -1132,6 +1166,193 @@ async def agent_playlist(body: PlaylistRequest):
         yield "event: done\ndata: done\n\n"
 
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+class AnalyticsChatRequest(BaseModel):
+    prompt: str
+    context_snapshot: dict | None = None
+
+
+_ANALYTICS_SYSTEM = """You are a music analytics assistant for a personal Last.fm scrobble database with ~121k plays since 2019.
+
+You help the user explore their listening data via two mechanisms:
+1. A natural language response explaining what you found or suggesting insights.
+2. A JSON array of UI actions that update the analytics frontend.
+
+Always respond with valid JSON in this exact shape:
+{
+  "response": "Your natural language answer here",
+  "ui_actions": [
+    {"type": "action_name", "payload": {...}}
+  ]
+}
+
+Available action types and their payloads:
+- navigate: { "path": "/dashboard" | "/discover" | "/timemachine" | "/explore/artist/<name>" }
+- set_time_range: { "period": "7d" | "30d" | "90d" | "1y" | "2y" | "all" }
+- set_entity_type: { "entity_type": "artist" | "album" | "track" }
+- apply_filter: { "search": "text", "sort_by": "column", "sort_dir": "asc" | "desc" }
+- clear_filters: {}
+- drill_down: { "entity_type": "artist" | "album" | "track", "entity_id": "name" }
+- open_panel: { "panel": "Stats" | "Albums" | "Similar" }
+- set_era_preset: { "preset": "2019" | "2020" | "2021" | "2022" | "2023" | "2024" | "2025", "from": "YYYY-MM-DD", "to": "YYYY-MM-DD" }
+- show_toast: { "message": "text" }
+- global_search: { "query": "text" }
+
+Current context is provided in the user message. Use it to understand what page the user is on and what they're looking at.
+Only include ui_actions that are meaningful given the user's request. An empty array is fine if no UI change is needed.
+"""
+
+
+# Dev stubs — set ANALYTICS_CHAT_STUBS=1 to bypass Claude API during local development.
+# Each entry: (keywords_that_must_all_appear_in_prompt, response_dict).
+# Remove individual entries as you verify the real Claude response for that scenario.
+_CHAT_STUBS: list[tuple[list[str], dict]] = [
+    # 1. Summer 2021 / time machine navigation
+    (["summer", "2021"], {
+        "response": "[STUB] Navigating to Time Machine and setting era to Summer 2021 (June–August).",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/timemachine"}},
+            {"type": "set_era_preset", "payload": {"preset": "2021", "from": "2021-06-01", "to": "2021-08-31"}},
+            {"type": "show_toast", "payload": {"message": "Time Machine → Summer 2021"}},
+        ],
+    }),
+    # 2. Artist listening history over the years (e.g. "how has my Radiohead listening changed")
+    (["radiohead", "year"], {
+        "response": "[STUB] Opening Radiohead deep dive with all-time yearly granularity.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/explore/artist/Radiohead"}},
+            {"type": "set_time_range", "payload": {"period": "all"}},
+            {"type": "show_toast", "payload": {"message": "Deep Dive → Radiohead (all time)"}},
+        ],
+    }),
+    # 3. Compare two artists (flagship multi-action sequence)
+    (["compare", "lana", "mitski"], {
+        "response": "[STUB] Opening Lana Del Rey deep dive, switching to all-time, and comparing with Mitski.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/explore/artist/Lana Del Rey"}},
+            {"type": "set_time_range", "payload": {"period": "all"}},
+            {"type": "open_panel", "payload": {"panel": "Compare"}},
+            {"type": "add_compare_entity", "payload": {"type": "artist", "id": "Mitski"}},
+            {"type": "show_toast", "payload": {"message": "Compare: Lana Del Rey vs Mitski"}},
+        ],
+    }),
+    # 4. Artists I used to listen to but haven't recently (flagship Discover filter demo)
+    (["haven't", "month"], {
+        "response": "[STUB] Filtering Discover to artists with 50+ total plays but not heard in 6+ months.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/discover"}},
+            {"type": "set_entity_type", "payload": {"entity_type": "artist"}},
+            {"type": "apply_filter", "payload": {"sort_by": "total_plays", "sort_dir": "desc"}},
+            {"type": "show_toast", "payload": {"message": "Discover → dormant artists filter"}},
+        ],
+    }),
+    # 5. Scatter plot — plays vs recency
+    (["scatter"], {
+        "response": "[STUB] Scatter plot of top 50 artists by total plays vs days since last heard.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/discover"}},
+            {"type": "set_entity_type", "payload": {"entity_type": "artist"}},
+            {"type": "set_top_n", "payload": {"n": 50}},
+            {"type": "set_viz_type", "payload": {"viz_type": "scatter"}},
+            {"type": "set_viz_axes", "payload": {"x_metric": "total_plays", "y_metric": "days_since_last_heard"}},
+            {"type": "show_toast", "payload": {"message": "Discover → scatter: plays vs recency"}},
+        ],
+    }),
+    # 6. Top artists this year
+    (["top artist"], {
+        "response": "[STUB] Showing top artists over the last year on the Dashboard.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/dashboard"}},
+            {"type": "set_time_range", "payload": {"period": "1y"}},
+            {"type": "show_toast", "payload": {"message": "Dashboard → top artists (1y)"}},
+        ],
+    }),
+    # 7. Genre breakdown / what genres do I listen to
+    (["genre"], {
+        "response": "[STUB] Opening the Dashboard to show your genre breakdown chart.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/dashboard"}},
+            {"type": "show_toast", "payload": {"message": "Dashboard → genre breakdown"}},
+        ],
+    }),
+    # 8. Deep dive into a specific artist
+    (["deep dive", "nirvana"], {
+        "response": "[STUB] Opening Nirvana deep dive.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/explore/artist/Nirvana"}},
+            {"type": "show_toast", "payload": {"message": "Deep Dive → Nirvana"}},
+        ],
+    }),
+    # 9. Compare this year vs last year in Time Machine
+    (["compare", "year"], {
+        "response": "[STUB] Navigating to Time Machine and enabling compare mode for this year vs last year.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/timemachine"}},
+            {"type": "set_era_preset", "payload": {"preset": "2024", "from": "2024-01-01", "to": "2024-12-31"}},
+            {"type": "show_toast", "payload": {"message": "Time Machine → 2024 vs 2025 compare"}},
+        ],
+    }),
+    # 10. Show me the discover page / browse
+    (["discover"], {
+        "response": "[STUB] Opening the Discover page with all artists sorted by total plays.",
+        "ui_actions": [
+            {"type": "navigate", "payload": {"path": "/discover"}},
+            {"type": "set_entity_type", "payload": {"entity_type": "artist"}},
+            {"type": "apply_filter", "payload": {"sort_by": "total_plays", "sort_dir": "desc"}},
+            {"type": "show_toast", "payload": {"message": "Discover → all artists"}},
+        ],
+    }),
+]
+
+
+def _match_stub(prompt: str) -> dict | None:
+    p = prompt.lower()
+    for keywords, response in _CHAT_STUBS:
+        if all(k in p for k in keywords):
+            return response
+    return None
+
+
+@app.post("/analytics/chat")
+async def analytics_chat(body: AnalyticsChatRequest):
+    """Analytics action bus endpoint. Returns { response, ui_actions } JSON."""
+    if os.environ.get("ANALYTICS_CHAT_STUBS", "").strip() in ("1", "true"):
+        stub = _match_stub(body.prompt)
+        if stub:
+            return stub
+        return {
+            "response": f"[STUB] No stub matched: '{body.prompt}'. Add a stub or disable ANALYTICS_CHAT_STUBS.",
+            "ui_actions": [],
+        }
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+
+    user_msg = body.prompt
+    if body.context_snapshot:
+        user_msg = f"Current context: {json.dumps(body.context_snapshot)}\n\nUser request: {body.prompt}"
+
+    try:
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=_ANALYTICS_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        raw = msg.content[0].text.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        result = json.loads(raw)
+        # Validate structure
+        result.setdefault("response", "")
+        result.setdefault("ui_actions", [])
+        return result
+    except json.JSONDecodeError as e:
+        return {"response": raw, "ui_actions": [], "parse_error": str(e)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/agent/chat")

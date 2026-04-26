@@ -13,10 +13,16 @@
   },
   "dependencies": {
     "@tailwindcss/typography": "^0.5.19",
+    "ag-grid-community": "^35.2.1",
+    "ag-grid-react": "^35.2.1",
+    "highcharts": "^12.6.0",
+    "highcharts-react-official": "^3.2.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "react-router-dom": "^7.14.2",
+    "remark-gfm": "^4.0.1",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

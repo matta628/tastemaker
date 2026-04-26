@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import { api } from './api'
 import { SongLibrary } from './components/SongLibrary'
 import { SongForm } from './components/SongForm'
 import { PracticeQueue } from './components/PracticeQueue'
 import { NudgePanel } from './components/NudgePanel'
-import { AgentChat } from './components/AgentChat'
+import { OldChat } from './components/OldChat'
 import { ChatProvider, useChatContext } from './components/ChatContext'
 import { LyricsTape } from './components/LyricsTape'
 import { Vibes } from './components/Vibes'
@@ -14,6 +15,11 @@ import { MoodReview } from './components/MoodReview'
 import { useLyrics } from './components/useLyrics'
 import { SyncButton } from './components/SyncButton'
 import { StaleBanner } from './components/StaleBanner'
+import { Dashboard } from './components/analytics/Dashboard'
+import { DeepDive } from './components/analytics/DeepDive'
+import { Explore } from './components/analytics/Explore'
+import { Discover } from './components/analytics/Discover'
+import { TimeMachine } from './components/analytics/TimeMachine'
 import './index.css'
 
 const NAV = [
@@ -27,8 +33,9 @@ const NAV = [
   { id: 'Sync',      icon: '↻',  label: 'Sync'       },
 ]
 
-function AppInner() {
+function GuitarApp() {
   const { streaming } = useChatContext()
+  const navigate = useNavigate()
   const [tab, setTab] = useState('Library')
   const [songs, setSongs] = useState([])
   const { tracks: lyrics } = useLyrics()
@@ -139,8 +146,14 @@ function AppInner() {
             </button>
           ))}
         </nav>
-        <div className="px-5 py-4 border-t border-zinc-800">
+        <div className="px-5 py-4 border-t border-zinc-800 flex flex-col gap-2">
           <p className="text-xs text-zinc-600">{songs.length} entries</p>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="text-left text-xs text-zinc-500 hover:text-violet-400 transition-colors"
+          >
+            ✦ Analytics →
+          </button>
         </div>
       </aside>
 
@@ -224,7 +237,7 @@ function AppInner() {
           ) : activeTab === 'Vibes' ? (
             <Vibes />
           ) : activeTab === 'Chat' ? (
-            <AgentChat onGoToPlaylist={() => goTo('Playlist')} />
+            <OldChat onGoToPlaylist={() => goTo('Playlist')} />
           ) : activeTab === 'edit' && editingSong ? (
             <div className="max-w-lg">
               <SongForm
@@ -244,8 +257,19 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ChatProvider>
-      <AppInner />
-    </ChatProvider>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={
+          <ChatProvider>
+            <GuitarApp />
+          </ChatProvider>
+        } />
+        <Route path="/dashboard"          element={<Dashboard />} />
+        <Route path="/explore"            element={<Explore />} />
+        <Route path="/explore/:type/:id"  element={<DeepDive />} />
+        <Route path="/discover"           element={<Discover />} />
+        <Route path="/timemachine"        element={<TimeMachine />} />
+      </Routes>
+    </BrowserRouter>
   )
 }

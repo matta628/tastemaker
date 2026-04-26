@@ -147,7 +147,7 @@ function ChatHistoryPanel({ onClose, onGoToPlaylist }) {
 
 const RESPONSE_LIMIT = 3
 
-export function AgentChat({ onGoToPlaylist }) {
+export function OldChat({ onGoToPlaylist }) {
   const { messages, streaming, send, cancel, newChat, chats, activeChatId, submitPlaylist, plStatus } = useChatContext()
   const { tracks } = useLyrics()
   const [input, setInput]             = useState('')
