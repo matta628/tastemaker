@@ -4,12 +4,46 @@ import { useUIStore } from '../store/uiStore';
 import { userApi } from '../api';
 
 const ACTION_DELAY_MS = 120;
+const HIGHLIGHT_MS = 5000;
+
+// Maps action type → the chart/section ID to highlight.
+// 'toggle_chart' and 'set_time_range' are handled inline (context-dependent).
+const ACTION_CHART_IDS = {
+    set_metric:            'deepdive_chart',
+    set_granularity:       'deepdive_chart',
+    set_chart_type:        'deepdive_chart',
+    toggle_annotations:    'deepdive_chart',
+    add_compare_entity:    'deepdive_chart',
+    remove_compare_entity: 'deepdive_chart',
+    set_entity_type:       'discover_table',
+    set_view:              'discover_table',
+    set_columns:           'discover_table',
+    apply_filter:          'discover_table',
+    clear_filters:         'discover_table',
+    set_sort:              'discover_table',
+    load_report:           'discover_table',
+    set_viz_type:          'discover_viz',
+    set_viz_axes:          'discover_viz',
+    set_era:               'timemachine_chart',
+    set_era_preset:        'timemachine_chart',
+    toggle_compare_mode:   'timemachine_chart',
+    set_compare_era:       'timemachine_chart',
+};
+
+function getChartId(type, payload) {
+    if (type === 'toggle_chart') return payload.chart_id ?? null;
+    if (type === 'highlight_chart') return payload.chart_id ?? null;
+    if (type === 'set_time_range')
+        return window.location.pathname.startsWith('/explore') ? 'deepdive_chart' : 'activity';
+    return ACTION_CHART_IDS[type] ?? null;
+}
 
 const KNOWN_ACTIONS = new Set([
     // Global
     'navigate',
     'global_search',
     'show_toast',
+    'highlight_chart',
     // Dashboard
     'set_time_range',
     'set_metric',
@@ -59,6 +93,7 @@ export function useActionBus({ onToast, onActionLog } = {}) {
     const navigate = useNavigate();
     const store = useUIStore();
     const executedRef = useRef([]);
+    const highlightTimerRef = useRef(null);
 
     const isActionValid = (type) => {
         const pathname = window.location.pathname;
@@ -68,7 +103,7 @@ export function useActionBus({ onToast, onActionLog } = {}) {
         const onTimeMachine = pathname === '/timemachine';
 
         // Global actions always valid
-        if (['navigate', 'global_search', 'show_toast'].includes(type)) return true;
+        if (['navigate', 'global_search', 'show_toast', 'highlight_chart'].includes(type)) return true;
 
         // Page-specific checks
         if (onDashboard && ['set_time_range', 'set_metric', 'set_top_n', 'toggle_chart'].includes(type)) return true;
@@ -118,6 +153,10 @@ export function useActionBus({ onToast, onActionLog } = {}) {
                     }
                     case 'show_toast': {
                         onToast?.(payload.message ?? '');
+                        break;
+                    }
+                    case 'highlight_chart': {
+                        // No-op — highlight fires via getChartId after the switch
                         break;
                     }
 
@@ -280,10 +319,8 @@ export function useActionBus({ onToast, onActionLog } = {}) {
                         break;
                     }
                     case 'create_set': {
-                        const { name, members } = payload
-                        if (name) {
-                            store.addDiscoverSet(name, members ?? [])
-                        }
+                        const { name, entity_type, members } = payload
+                        if (name) store.addDiscoverSet(name, entity_type ?? 'artist', members ?? [])
                         break;
                     }
                     case 'add_to_set': {
@@ -455,6 +492,16 @@ export function useActionBus({ onToast, onActionLog } = {}) {
 
                 executedRef.current.push(type);
                 onActionLog?.({ type, status: 'done' });
+
+                const chartId = getChartId(type, payload);
+                if (chartId) {
+                    clearTimeout(highlightTimerRef.current);
+                    store.setHighlightedChart(chartId);
+                    highlightTimerRef.current = setTimeout(
+                        () => store.clearHighlightedChart(),
+                        HIGHLIGHT_MS,
+                    );
+                }
             } catch (err) {
                 console.error('[ActionBus] Error executing action:', type, err);
                 onActionLog?.({ type, status: 'error', reason: err.message });

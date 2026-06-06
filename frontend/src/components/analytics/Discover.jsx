@@ -1,11 +1,10 @@
-import { useCallback, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { HighchartsReact } from 'highcharts-react-official'
 import Highcharts from 'highcharts'
 import 'highcharts/highcharts-more'
 import { AnalyticsShell } from './AnalyticsShell'
 import { analytics } from '../../api'
-import { useChartData } from './charts/useChartData'
 import { useUIStore } from '../../store/uiStore'
 import { useActionBus } from '../../hooks/useActionBus'
 import { merge } from './charts/chartTheme'
@@ -16,10 +15,13 @@ const ENTITY_TYPES = [
   { key: 'track',  label: 'Tracks'  },
 ]
 
+const PAGE_SIZE = 50
+
 const ALL_COLS = {
   artist: {
     Identity: [
       { key: 'artist',         label: 'Artist',       flex: true,  sortable: true, category: 'Identity' },
+      { key: 'genre',          label: 'Genre',        w: 'w-28',   sortable: false, editable: true, category: 'Identity' },
     ],
     Volume: [
       { key: 'total_plays',    label: 'All-time',     w: 'w-24',   sortable: true, align: 'right', category: 'Volume' },
@@ -29,21 +31,29 @@ const ALL_COLS = {
       { key: 'days_since_last_heard', label: 'Last heard', w: 'w-24', sortable: true, align: 'right', fmt: v => v != null ? `${Math.round(v)}d ago` : '—', category: 'Recency' },
     ],
     Trend: [
-      { key: 'plays_7d',       label: '7d',           w: 'w-16',   sortable: true, align: 'right', category: 'Trend' },
-      { key: 'plays_30d',      label: '30d',          w: 'w-16',   sortable: true, align: 'right', category: 'Trend' },
-      { key: 'plays_30d_delta', label: '30d Δ',       w: 'w-16',   sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_7d',        label: '7d',      w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_30d',       label: '30d',     w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_30d_delta', label: '30d Δ',   w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_90d',       label: '90d',     w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_90d_delta', label: '90d Δ',   w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_180d',      label: '6mo',     w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_180d_delta', label: '6mo Δ',  w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_1y',        label: '1y',      w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_1y_delta',  label: '1y Δ',    w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
     ],
     Streak: [
       { key: 'longest_streak_days', label: 'Streak',  w: 'w-20',   sortable: true, align: 'right', fmt: v => v ? `${v}d` : '—', category: 'Streak' },
     ],
     Rank: [
-      { key: 'rank_all_time',  label: 'Rank',         w: 'w-16',   sortable: true, align: 'right', category: 'Rank' },
+      { key: 'rank_all_time',  label: 'Rank',     w: 'w-16', sortable: true, align: 'right', category: 'Rank' },
+      { key: 'rank_90d_delta', label: '90d rank Δ', w: 'w-20', sortable: true, align: 'right', delta: true, category: 'Rank' },
     ],
   },
   album: {
     Identity: [
       { key: 'album',          label: 'Album',        flex: true,  sortable: true, category: 'Identity' },
       { key: 'artist',         label: 'Artist',       w: 'w-40',   sortable: true, category: 'Identity' },
+      { key: 'genre',          label: 'Genre',        w: 'w-28',   sortable: false, editable: true, category: 'Identity' },
     ],
     Volume: [
       { key: 'total_plays',    label: 'All-time',     w: 'w-24',   sortable: true, align: 'right', category: 'Volume' },
@@ -53,17 +63,25 @@ const ALL_COLS = {
       { key: 'days_since_last_heard', label: 'Last heard', w: 'w-24', sortable: true, align: 'right', fmt: v => v != null ? `${Math.round(v)}d ago` : '—', category: 'Recency' },
     ],
     Trend: [
-      { key: 'plays_7d',       label: '7d',           w: 'w-16',   sortable: true, align: 'right', category: 'Trend' },
-      { key: 'plays_30d',      label: '30d',          w: 'w-16',   sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_7d',         label: '7d',     w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_30d',        label: '30d',    w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_30d_delta',  label: '30d Δ',  w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_90d',        label: '90d',    w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_90d_delta',  label: '90d Δ',  w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_180d',       label: '6mo',    w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_180d_delta', label: '6mo Δ',  w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_1y',         label: '1y',     w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_1y_delta',   label: '1y Δ',   w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
     ],
     Rank: [
-      { key: 'rank_all_time',  label: 'Rank',         w: 'w-16',   sortable: true, align: 'right', category: 'Rank' },
+      { key: 'rank_all_time',  label: 'Rank',     w: 'w-16', sortable: true, align: 'right', category: 'Rank' },
     ],
   },
   track: {
     Identity: [
       { key: 'track',          label: 'Track',        flex: true,  sortable: true, category: 'Identity' },
       { key: 'artist',         label: 'Artist',       w: 'w-40',   sortable: true, category: 'Identity' },
+      { key: 'genre',          label: 'Genre',        w: 'w-28',   sortable: false, editable: true, category: 'Identity' },
     ],
     Volume: [
       { key: 'total_plays',    label: 'All-time',     w: 'w-24',   sortable: true, align: 'right', category: 'Volume' },
@@ -72,11 +90,18 @@ const ALL_COLS = {
       { key: 'days_since_last_heard', label: 'Last heard', w: 'w-24', sortable: true, align: 'right', fmt: v => v != null ? `${Math.round(v)}d ago` : '—', category: 'Recency' },
     ],
     Trend: [
-      { key: 'plays_7d',       label: '7d',           w: 'w-16',   sortable: true, align: 'right', category: 'Trend' },
-      { key: 'plays_30d',      label: '30d',          w: 'w-16',   sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_7d',         label: '7d',     w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_30d',        label: '30d',    w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_30d_delta',  label: '30d Δ',  w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_90d',        label: '90d',    w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_90d_delta',  label: '90d Δ',  w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_180d',       label: '6mo',    w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_180d_delta', label: '6mo Δ',  w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
+      { key: 'plays_1y',         label: '1y',     w: 'w-16', sortable: true, align: 'right', category: 'Trend' },
+      { key: 'plays_1y_delta',   label: '1y Δ',   w: 'w-16', sortable: true, align: 'right', delta: true, category: 'Trend' },
     ],
     Rank: [
-      { key: 'rank_all_time',  label: 'Rank',         w: 'w-16',   sortable: true, align: 'right', category: 'Rank' },
+      { key: 'rank_all_time',  label: 'Rank',     w: 'w-16', sortable: true, align: 'right', category: 'Rank' },
     ],
     Streak: [
       { key: 'longest_streak_days', label: 'Streak',  w: 'w-20',   sortable: true, align: 'right', fmt: v => v ? `${v}d` : '—', category: 'Streak' },
@@ -85,7 +110,7 @@ const ALL_COLS = {
 }
 
 const DEFAULT_COLS = {
-  artist: ['artist', 'total_plays', 'plays_7d', 'plays_30d', 'plays_30d_delta', 'rank_all_time', 'unique_tracks', 'days_since_last_heard', 'longest_streak_days'],
+  artist: ['artist', 'genre', 'total_plays', 'plays_7d', 'plays_30d', 'plays_30d_delta', 'rank_all_time', 'unique_tracks', 'days_since_last_heard', 'longest_streak_days'],
   album:  ['album', 'artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'unique_tracks', 'days_since_last_heard'],
   track:  ['track', 'artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'days_since_last_heard', 'longest_streak_days'],
 }
@@ -101,76 +126,154 @@ const AXIS_LABEL = {
   longest_streak_days: 'Longest streak (days)',
 }
 
+const FILTER_FIELDS = {
+  artist: ['artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'unique_tracks', 'days_since_last_heard', 'longest_streak_days'],
+  album:  ['album', 'artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'unique_tracks', 'days_since_last_heard'],
+  track:  ['track', 'artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'days_since_last_heard', 'longest_streak_days'],
+}
+
+const FILTER_OPERATORS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'in_last_days']
+
+// ─── Shared ──────────────────────────────────────────────────────────────────
+
+function GenreCell({ value, artist, onSave }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value ?? '')
+
+  const commit = async () => {
+    setEditing(false)
+    if (draft === (value ?? '')) return
+    try {
+      await analytics.setGenreOverride({ artist, genre: draft })
+      onSave(draft)
+    } catch (e) {
+      console.error('Genre save failed', e)
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') { setDraft(value ?? ''); setEditing(false) }
+        }}
+        onClick={e => e.stopPropagation()}
+        className="bg-zinc-700 border border-violet-500 rounded px-1.5 py-0.5 text-xs text-zinc-100 w-full outline-none"
+      />
+    )
+  }
+
+  return (
+    <span
+      onClick={e => { e.stopPropagation(); setDraft(value ?? ''); setEditing(true) }}
+      className="cursor-text group inline-flex items-center gap-1 hover:text-zinc-100"
+      title="Click to edit genre"
+    >
+      {value || <span className="text-zinc-600">—</span>}
+      <span className="text-zinc-600 opacity-0 group-hover:opacity-100 text-[10px]">✎</span>
+    </span>
+  )
+}
+
 function DeltaCell({ value }) {
   if (value == null) return <span className="text-zinc-600">—</span>
-  if (value > 0) return <span className="text-emerald-400">+{value}</span>
-  if (value < 0) return <span className="text-red-400">{value}</span>
+  if (value > 0)  return <span className="text-emerald-400">+{value}</span>
+  if (value < 0)  return <span className="text-red-400">{value}</span>
   return <span className="text-zinc-600">0</span>
 }
 
-function ColumnPicker({ entity, selectedColumns, onSelect }) {
+function Modal({ title, onClose, wide = false, children }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onMouseDown={onClose}
+    >
+      <div
+        className={`bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl flex flex-col ${
+          wide ? 'w-full max-w-2xl' : 'w-full max-w-md'
+        } mx-4 max-h-[80vh]`}
+        onMouseDown={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 shrink-0">
+          <h2 className="text-sm font-semibold text-zinc-200">{title}</h2>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none">✕</button>
+        </div>
+        <div className="flex-1 overflow-auto">
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Column picker dropdown ───────────────────────────────────────────────────
+
+function ColumnPicker({ entity, selectedColumns, onSelect, forceClose, onOpen }) {
   const [isOpen, setIsOpen] = useState(false)
   const categories = ALL_COLS[entity]
 
+  useEffect(() => { if (forceClose && isOpen) setIsOpen(false) }, [forceClose])
+
+  const toggle = () => {
+    if (!isOpen) onOpen?.()
+    setIsOpen(v => !v)
+  }
+
   const toggleColumn = (key) => {
-    const newSelected = selectedColumns.includes(key)
+    onSelect(selectedColumns.includes(key)
       ? selectedColumns.filter(k => k !== key)
-      : [...selectedColumns, key]
-    onSelect(newSelected)
+      : [...selectedColumns, key])
   }
 
   const toggleCategory = (cat) => {
-    const colsInCat = categories[cat].map(c => c.key)
-    const allInCat = colsInCat.every(k => selectedColumns.includes(k))
-    const newSelected = allInCat
-      ? selectedColumns.filter(k => !colsInCat.includes(k))
-      : [...new Set([...selectedColumns, ...colsInCat])]
-    onSelect(newSelected)
+    const keys = categories[cat].map(c => c.key)
+    const allIn = keys.every(k => selectedColumns.includes(k))
+    onSelect(allIn ? selectedColumns.filter(k => !keys.includes(k)) : [...new Set([...selectedColumns, ...keys])])
   }
 
   return (
     <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors"
-      >
+      <button onClick={toggle}
+        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700 transition-colors">
         ⚙️ Columns
       </button>
       {isOpen && (
-        <div className="absolute right-0 top-8 z-20 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-max shadow-lg">
+        <div className="absolute left-0 top-8 z-20 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-max shadow-lg">
           {Object.entries(categories).map(([cat, cols]) => (
-            <div key={cat} className="mb-3 pb-2 border-b border-zinc-700 last:border-0">
+            <div key={cat} className="mb-3 pb-2 border-b border-zinc-700 last:border-0 last:mb-0 last:pb-0">
               <label className="flex items-center gap-2 mb-1 text-xs font-medium text-zinc-400 cursor-pointer hover:text-zinc-200">
-                <input
-                  type="checkbox"
+                <input type="checkbox"
                   checked={cols.every(c => selectedColumns.includes(c.key))}
                   onChange={() => toggleCategory(cat)}
-                  className="w-3 h-3 rounded accent-violet-600"
-                />
+                  className="w-3 h-3 rounded accent-violet-600" />
                 {cat}
               </label>
               <div className="ml-4 space-y-1">
                 {cols.map(col => (
                   <label key={col.key} className="flex items-center gap-2 text-xs text-zinc-500 cursor-pointer hover:text-zinc-300">
-                    <input
-                      type="checkbox"
+                    <input type="checkbox"
                       checked={selectedColumns.includes(col.key)}
                       onChange={() => toggleColumn(col.key)}
-                      className="w-3 h-3 rounded accent-violet-600"
-                    />
+                      className="w-3 h-3 rounded accent-violet-600" />
                     {col.label}
                   </label>
                 ))}
               </div>
             </div>
           ))}
-          <button
-            onClick={() => {
-              onSelect(DEFAULT_COLS[entity])
-              setIsOpen(false)
-            }}
-            className="w-full text-left px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors"
-          >
+          <button onClick={() => { onSelect(DEFAULT_COLS[entity]); setIsOpen(false) }}
+            className="w-full text-left px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors mt-1">
             Reset to default
           </button>
         </div>
@@ -179,111 +282,66 @@ function ColumnPicker({ entity, selectedColumns, onSelect }) {
   )
 }
 
-const FILTER_FIELDS = {
-  artist: ['artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'unique_tracks', 'days_since_last_heard', 'longest_streak_days'],
-  album: ['album', 'artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'unique_tracks', 'days_since_last_heard'],
-  track: ['track', 'artist', 'total_plays', 'plays_7d', 'plays_30d', 'rank_all_time', 'days_since_last_heard', 'longest_streak_days'],
-}
+// ─── Filter builder dropdown ──────────────────────────────────────────────────
 
-const FILTER_OPERATORS = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'in_last_days']
-
-function FilterBuilder({ entity, filters, onFiltersChange, onApply }) {
+function FilterBuilder({ entity, filters, forceClose, onOpen }) {
   const [isOpen, setIsOpen] = useState(false)
   const store = useUIStore()
 
-  const addFilter = () => {
-    store.addDiscoverFilter()
-  }
+  useEffect(() => { if (forceClose && isOpen) setIsOpen(false) }, [forceClose])
 
-  const removeFilter = (id) => {
-    store.removeDiscoverFilter(id)
-  }
-
-  const updateFilter = (id, updates) => {
-    store.updateDiscoverFilter(id, updates)
-  }
-
-  const applyFilters = () => {
-    onApply()
-    setIsOpen(false)
+  const toggle = () => {
+    if (!isOpen) onOpen?.()
+    setIsOpen(v => !v)
   }
 
   return (
     <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
+      <button onClick={toggle}
         className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-          filters.length > 0
-            ? 'bg-violet-600 text-white'
-            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
-        }`}
-      >
+          filters.length > 0 ? 'bg-violet-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+        }`}>
         🔍 Filters {filters.length > 0 && `(${filters.length})`}
       </button>
       {isOpen && (
-        <div className="absolute right-0 top-8 z-20 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-max shadow-lg max-w-2xl">
-          <div className="space-y-2 max-h-96 overflow-y-auto mb-3">
-            {filters.length === 0 ? (
-              <div className="text-xs text-zinc-600 py-2">No filters. Add one to get started.</div>
-            ) : (
-              filters.map((filter, idx) => (
+        <div className="absolute left-0 top-8 z-20 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-max shadow-lg max-w-2xl">
+          <div className="space-y-2 max-h-64 overflow-y-auto mb-3">
+            {filters.length === 0
+              ? <div className="text-xs text-zinc-600 py-2">No filters. Add one to get started.</div>
+              : filters.map(filter => (
                 <div key={filter.id} className="flex items-end gap-2">
-                  <select
-                    value={filter.field}
-                    onChange={(e) => updateFilter(filter.id, { field: e.target.value })}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-violet-500"
-                  >
-                    {FILTER_FIELDS[entity].map(f => (
-                      <option key={f} value={f}>{f}</option>
-                    ))}
+                  <select value={filter.field}
+                    onChange={e => store.updateDiscoverFilter(filter.id, { field: e.target.value })}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-violet-500">
+                    {FILTER_FIELDS[entity].map(f => <option key={f} value={f}>{f}</option>)}
                   </select>
-                  <select
-                    value={filter.operator}
-                    onChange={(e) => updateFilter(filter.id, { operator: e.target.value })}
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-violet-500"
-                  >
-                    {FILTER_OPERATORS.map(op => (
-                      <option key={op} value={op}>{op}</option>
-                    ))}
+                  <select value={filter.operator}
+                    onChange={e => store.updateDiscoverFilter(filter.id, { operator: e.target.value })}
+                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 focus:outline-none focus:border-violet-500">
+                    {FILTER_OPERATORS.map(op => <option key={op} value={op}>{op}</option>)}
                   </select>
-                  <input
-                    type="text"
-                    value={filter.value}
-                    onChange={(e) => updateFilter(filter.id, { value: e.target.value })}
+                  <input type="text" value={filter.value}
+                    onChange={e => store.updateDiscoverFilter(filter.id, { value: e.target.value })}
                     placeholder="value"
-                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 w-24"
-                  />
-                  <button
-                    onClick={() => removeFilter(filter.id)}
-                    className="px-2 py-1 text-xs text-zinc-500 hover:text-red-400 transition-colors"
-                  >
-                    ✕
-                  </button>
+                    className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 w-24" />
+                  <button onClick={() => store.removeDiscoverFilter(filter.id)}
+                    className="px-2 py-1 text-xs text-zinc-500 hover:text-red-400 transition-colors">✕</button>
                 </div>
               ))
-            )}
+            }
           </div>
           <div className="flex gap-2 border-t border-zinc-700 pt-2">
-            <button
-              onClick={addFilter}
-              className="text-left px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors flex-1"
-            >
+            <button onClick={() => store.addDiscoverFilter()}
+              className="flex-1 text-left px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors">
               + Add filter
             </button>
-            <button
-              onClick={() => {
-                store.setDiscoverFilters([])
-                setIsOpen(false)
-              }}
-              className="text-left px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors"
-            >
+            <button onClick={() => { store.setDiscoverFilters([]); setIsOpen(false) }}
+              className="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors">
               Clear all
             </button>
-            <button
-              onClick={applyFilters}
-              className="px-3 py-1 text-xs font-medium bg-violet-600 text-white rounded hover:bg-violet-700 transition-colors"
-            >
-              Apply
+            <button onClick={() => setIsOpen(false)}
+              className="px-3 py-1 text-xs font-medium bg-violet-600 text-white rounded hover:bg-violet-700 transition-colors">
+              Done
             </button>
           </div>
         </div>
@@ -292,188 +350,329 @@ function FilterBuilder({ entity, filters, onFiltersChange, onApply }) {
   )
 }
 
-function SetsPanel({ entity, sets, activeSetId, onCreateSet, onAddToSet, onRemoveFromSet, onApplyFilter, onClearFilter }) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [newSetName, setNewSetName] = useState('')
-  const activeSet = activeSetId ? sets.find(s => s.id === activeSetId) : null
+// ─── Reports modal ────────────────────────────────────────────────────────────
 
-  const handleCreateSet = () => {
-    if (newSetName.trim()) {
-      onCreateSet({ name: newSetName })
-      setNewSetName('')
-    }
-  }
-
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-          activeSetId ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
-        }`}
-      >
-        🎯 Sets {activeSetId && activeSet && `(${activeSet.name})`}
-      </button>
-      {isOpen && (
-        <div className="absolute right-0 top-8 z-20 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-max shadow-lg max-w-sm">
-          <div className="mb-3 space-y-2 max-h-48 overflow-y-auto">
-            {sets.length === 0 ? (
-              <div className="text-xs text-zinc-600 py-2">No sets yet</div>
-            ) : (
-              sets.map(s => (
-                <div key={s.id} className="flex items-center gap-2 p-2 bg-zinc-800 rounded">
-                  <button
-                    onClick={() => { onApplyFilter({ set_id: s.id }); setIsOpen(false) }}
-                    className={`flex-1 text-left text-xs truncate transition-colors ${
-                      activeSetId === s.id
-                        ? 'text-emerald-400 font-medium'
-                        : 'text-zinc-300 hover:text-zinc-100'
-                    }`}
-                  >
-                    {s.name} ({s.members.length})
-                  </button>
-                  <button
-                    onClick={() => onRemoveFromSet({ set_id: s.id, member: activeSet?.members[0] })}
-                    className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-          <div className="border-t border-zinc-700 pt-2 space-y-2">
-            {activeSetId && (
-              <button
-                onClick={() => { onClearFilter({}); setIsOpen(false) }}
-                className="w-full text-left px-2 py-1 text-xs text-zinc-500 hover:text-zinc-300 rounded hover:bg-zinc-800 transition-colors"
-              >
-                Clear filter
-              </button>
-            )}
-            <input
-              type="text"
-              value={newSetName}
-              onChange={(e) => setNewSetName(e.target.value)}
-              placeholder="Set name"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
-            />
-            <button
-              onClick={handleCreateSet}
-              disabled={!newSetName.trim()}
-              className="w-full px-2 py-1 text-xs font-medium bg-violet-600 text-white rounded hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Create set
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ReportsPanel({ entity, selectedCols, filters, sortBy, sortDir, reports, onSave, onLoad, onDelete }) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [newReportName, setNewReportName] = useState('')
+function ReportsModal({ entity, selectedCols, filters, sortBy, sortDir, reports, onSave, onLoad, onDelete, onClose }) {
+  const [newName, setNewName] = useState('')
+  const entityReports = reports.filter(r => r.entity === entity)
 
   const handleSave = () => {
-    if (newReportName.trim()) {
-      onSave({
-        name: newReportName,
-        entity,
-        columns: selectedCols,
-        filters: filters.map(f => ({ field: f.field, operator: f.operator, value: f.value })),
-        sort_by: sortBy,
-        sort_dir: sortDir,
-      })
-      setNewReportName('')
-      setIsOpen(false)
-    }
+    if (!newName.trim()) return
+    onSave({
+      name: newName.trim(),
+      entity,
+      columns: selectedCols,
+      filters: filters.map(f => ({ field: f.field, operator: f.operator, value: f.value })),
+      sort_by: sortBy,
+      sort_dir: sortDir,
+    })
+    setNewName('')
   }
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-          reports.length > 0
-            ? 'bg-violet-600 text-white'
-            : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
-        }`}
-      >
-        📋 Reports {reports.length > 0 && `(${reports.length})`}
-      </button>
-      {isOpen && (
-        <div className="absolute right-0 top-8 z-20 bg-zinc-900 border border-zinc-700 rounded-lg p-3 min-w-max shadow-lg max-w-sm">
-          <div className="mb-3 space-y-2">
-            {reports.filter(r => r.entity === entity).length === 0 ? (
-              <div className="text-xs text-zinc-600 py-2">No reports for {entity}s</div>
-            ) : (
-              reports.filter(r => r.entity === entity).map(report => (
-                <div key={report.id} className="flex items-center gap-2 p-2 bg-zinc-800 rounded">
-                  <button
-                    onClick={() => { onLoad(report.id); setIsOpen(false) }}
-                    className="flex-1 text-left text-xs text-zinc-300 hover:text-zinc-100 truncate"
-                  >
-                    {report.name}
-                  </button>
-                  <button
-                    onClick={() => onDelete(report.id)}
-                    className="text-xs text-zinc-500 hover:text-red-400 transition-colors"
-                  >
-                    ✕
-                  </button>
+    <Modal title="Reports" onClose={onClose}>
+      <div className="p-5 space-y-5">
+        {/* Saved reports */}
+        {entityReports.length === 0 ? (
+          <p className="text-sm text-zinc-500">No saved reports for {entity}s yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {entityReports.map(r => (
+              <div key={r.id} className="flex items-center gap-3 p-3 bg-zinc-800 rounded-lg">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-zinc-200 truncate">{r.name}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">
+                    {r.columns?.length ?? 0} cols · {r.filters?.length ?? 0} filters · sort {r.sort_by} {r.sort_dir}
+                  </div>
                 </div>
-              ))
-            )}
+                <button onClick={() => { onLoad(r.id); onClose() }}
+                  className="px-3 py-1 text-xs font-medium bg-violet-600 text-white rounded-lg hover:bg-violet-500 transition-colors shrink-0">
+                  Load
+                </button>
+                <button onClick={() => onDelete(r.id)}
+                  className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 text-sm leading-none px-1">
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
-          <div className="border-t border-zinc-700 pt-2 space-y-2">
+        )}
+
+        {/* Save current view */}
+        <div className="border-t border-zinc-800 pt-4">
+          <p className="text-xs text-zinc-500 mb-2">Save current view as a report</p>
+          <div className="flex gap-2">
             <input
-              type="text"
-              value={newReportName}
-              onChange={(e) => setNewReportName(e.target.value)}
-              placeholder="Report name"
-              className="w-full bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+              placeholder="Report name…"
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
+              autoFocus
             />
-            <button
-              onClick={handleSave}
-              disabled={!newReportName.trim()}
-              className="w-full px-2 py-1 text-xs font-medium bg-violet-600 text-white rounded hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Save as report
+            <button onClick={handleSave} disabled={!newName.trim()}
+              className="px-4 py-2 text-sm font-medium bg-violet-600 text-white rounded-lg hover:bg-violet-500 transition-colors disabled:opacity-40">
+              Save
             </button>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    </Modal>
   )
 }
 
-function CardView({ rows, entity, cols, navigate, onRowClick }) {
+// ─── Groups & Sets modal ──────────────────────────────────────────────────────
+
+const SET_TABS = [
+  { key: 'artist', label: 'Artist Groups', noun: 'artists' },
+  { key: 'track',  label: 'Track Sets',    noun: 'tracks'  },
+]
+
+function SetsModal({ initialTab = 'artist', sets, activeSetId, onCreateSet, onAddToSet, onRemoveFromSet, onApplyFilter, onClearFilter, onDeleteSet, onClose }) {
+  const [activeTab, setActiveTab] = useState(initialTab)
+  const [editingId, setEditingId] = useState(null)
+  const [newSetName, setNewSetName] = useState('')
+  const [memberQuery, setMemberQuery] = useState('')
+  const [memberResults, setMemberResults] = useState([])
+  const [memberSearching, setMemberSearching] = useState(false)
+  const searchTimerRef = useRef(null)
+
+  const tabSets = sets.filter(s => (s.entity_type ?? 'artist') === activeTab)
+  const editingSet = editingId ? sets.find(s => s.id === editingId) : null
+  const tabInfo = SET_TABS.find(t => t.key === activeTab)
+
+  const memberDisplayName = (entityId) => {
+    if (activeTab === 'track') {
+      const [track, artist] = entityId.split('|||')
+      return artist ? `${track} — ${artist}` : entityId
+    }
+    return entityId
+  }
+
+  const entityIdOf = (row) =>
+    activeTab === 'artist' ? row.artist : `${row.track}|||${row.artist}`
+
+  const handleCreate = () => {
+    if (!newSetName.trim()) return
+    onCreateSet({ name: newSetName.trim(), entity_type: activeTab })
+    setNewSetName('')
+  }
+
+  const onMemberQueryChange = (val) => {
+    setMemberQuery(val)
+    clearTimeout(searchTimerRef.current)
+    if (!val.trim()) { setMemberResults([]); return }
+    setMemberSearching(true)
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const fetcher = activeTab === 'artist' ? analytics.entitiesArtists : analytics.entitiesTracks
+        const res = await fetcher({ search: val, limit: 8, sort_by: 'total_plays', sort_dir: 'desc', offset: 0 })
+        setMemberResults(res.rows ?? [])
+      } finally { setMemberSearching(false) }
+    }, 300)
+  }
+
+  const resetEdit = () => { setEditingId(null); setMemberQuery(''); setMemberResults([]) }
+
+  // ── Edit view ───────────────────────────────────────────────────────────────
+  if (editingSet) {
+    return (
+      <Modal title={editingSet.name} onClose={onClose} wide>
+        <div className="p-5">
+          <button onClick={resetEdit}
+            className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors mb-4 flex items-center gap-1">
+            ← Back
+          </button>
+
+          <div className="grid grid-cols-2 gap-5">
+            {/* Members */}
+            <div>
+              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">
+                Members ({editingSet.members.length})
+              </h3>
+              {editingSet.members.length === 0 ? (
+                <p className="text-xs text-zinc-600 py-2">No members yet — search to add →</p>
+              ) : (
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                  {editingSet.members.map(m => (
+                    <div key={m} className="flex items-center justify-between py-1.5 px-2 bg-zinc-800 rounded text-xs group">
+                      <span className="text-zinc-300 truncate">{memberDisplayName(m)}</span>
+                      <button onClick={() => onRemoveFromSet({ set_id: editingSet.id, member: m })}
+                        className="text-zinc-600 hover:text-red-400 transition-colors ml-2 shrink-0 opacity-0 group-hover:opacity-100">✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Search to add */}
+            <div>
+              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wide mb-2">
+                Add {tabInfo.noun}
+              </h3>
+              <input
+                value={memberQuery}
+                onChange={e => onMemberQueryChange(e.target.value)}
+                placeholder={`Search ${tabInfo.noun}…`}
+                className="w-full mb-2 bg-zinc-800 border border-zinc-700 rounded px-2 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
+                autoFocus
+              />
+              {memberSearching && <div className="text-xs text-zinc-600 py-1 animate-pulse">Searching…</div>}
+              <div className="space-y-0.5 max-h-64 overflow-y-auto">
+                {memberResults.map((row, i) => {
+                  const eid = entityIdOf(row)
+                  const alreadyIn = editingSet.members.includes(eid)
+                  return (
+                    <button key={i}
+                      onClick={() => !alreadyIn && onAddToSet({ set_id: editingSet.id, member: eid })}
+                      disabled={alreadyIn}
+                      className={`w-full text-left flex items-center justify-between py-1.5 px-2 rounded text-xs transition-colors ${
+                        alreadyIn ? 'text-zinc-600 cursor-default' : 'text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 cursor-pointer'
+                      }`}>
+                      <div className="flex flex-col min-w-0">
+                        <span className="truncate">{activeTab === 'artist' ? row.artist : row.track}</span>
+                        {activeTab === 'track' && <span className="text-zinc-600 text-[10px] truncate">{row.artist}</span>}
+                      </div>
+                      <span className={`shrink-0 ml-2 text-sm ${alreadyIn ? 'text-emerald-600' : 'text-zinc-500'}`}>
+                        {alreadyIn ? '✓' : '+'}
+                      </span>
+                    </button>
+                  )
+                })}
+                {!memberSearching && memberQuery && memberResults.length === 0 && (
+                  <div className="text-xs text-zinc-600 py-2 text-center">No results</div>
+                )}
+                {!memberQuery && (
+                  <div className="text-xs text-zinc-600 py-2 text-center">Type to search</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    )
+  }
+
+  // ── List view ───────────────────────────────────────────────────────────────
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6 overflow-auto flex-1">
+    <Modal title="Groups & Sets" onClose={onClose} wide>
+      <div className="p-5">
+        {/* Tabs */}
+        <div className="flex gap-1 mb-4 pb-3 border-b border-zinc-800">
+          {SET_TABS.map(t => {
+            const count = sets.filter(s => (s.entity_type ?? 'artist') === t.key).length
+            return (
+              <button key={t.key} onClick={() => setActiveTab(t.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  activeTab === t.key ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                }`}>
+                {t.label}
+                {count > 0 && (
+                  <span className={`ml-1.5 text-[10px] ${activeTab === t.key ? 'text-violet-300' : 'text-zinc-600'}`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Set list */}
+        {tabSets.length === 0 ? (
+          <p className="text-sm text-zinc-500 py-2 mb-4">
+            No {tabInfo.label.toLowerCase()} yet.
+          </p>
+        ) : (
+          <div className="space-y-2 mb-4">
+            {tabSets.map(s => (
+              <div key={s.id} className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${
+                activeSetId === s.id ? 'bg-emerald-900/30 border-emerald-700/60' : 'bg-zinc-800 border-transparent'
+              }`}>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-zinc-200">{s.name}</div>
+                  <div className="text-xs text-zinc-500 mt-0.5">{s.members.length} {tabInfo.noun}</div>
+                </div>
+                <button onClick={() => setEditingId(s.id)}
+                  className="px-2 py-1 text-xs text-zinc-400 hover:text-zinc-200 rounded hover:bg-zinc-700 transition-colors shrink-0">
+                  Edit
+                </button>
+                {activeSetId === s.id ? (
+                  <button onClick={() => { onClearFilter(); onClose() }}
+                    className="px-3 py-1 text-xs font-medium bg-emerald-700 text-white rounded-lg hover:bg-emerald-600 transition-colors shrink-0">
+                    Active ✓
+                  </button>
+                ) : (
+                  <button onClick={() => { onApplyFilter(s); onClose() }}
+                    className="px-3 py-1 text-xs font-medium bg-zinc-700 text-zinc-200 rounded-lg hover:bg-zinc-600 transition-colors shrink-0">
+                    Filter
+                  </button>
+                )}
+                <button onClick={() => onDeleteSet(s.id)}
+                  className="text-zinc-500 hover:text-red-400 transition-colors shrink-0 text-sm leading-none px-1">✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Create new */}
+        <div className="border-t border-zinc-800 pt-4">
+          <p className="text-xs text-zinc-500 mb-2">New {tabInfo.label.toLowerCase().replace('s', '').trimEnd()}…</p>
+          <div className="flex gap-2">
+            <input
+              value={newSetName}
+              onChange={e => setNewSetName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleCreate()}
+              placeholder={`${tabInfo.label} name…`}
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
+              autoFocus
+            />
+            <button onClick={handleCreate} disabled={!newSetName.trim()}
+              className="px-4 py-2 text-sm font-medium bg-violet-600 text-white rounded-lg hover:bg-violet-500 transition-colors disabled:opacity-40">
+              Create
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ─── Table / card / split views ───────────────────────────────────────────────
+
+function CardView({ rows, entity, onRowClick, hasMore, onScrollEnd, pageLoading }) {
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    if (scrollHeight - scrollTop - clientHeight < 300 && hasMore && !pageLoading) onScrollEnd()
+  }
+
+  return (
+    <div
+      className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-6 overflow-auto flex-1"
+      onScroll={handleScroll}
+    >
       {rows.map((row, i) => {
         const name = entity === 'artist' ? row.artist : entity === 'album' ? row.album : row.track
-        const plays = row.total_plays
         return (
-          <div key={i}
-            onClick={() => onRowClick(row)}
-            className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 cursor-pointer hover:bg-zinc-800 hover:border-violet-600 transition-all"
-          >
+          <div key={i} onClick={() => onRowClick(row)}
+            className="bg-zinc-800/50 border border-zinc-700 rounded-lg p-4 cursor-pointer hover:bg-zinc-800 hover:border-violet-600 transition-all">
             <div className="truncate font-medium text-sm text-zinc-200 mb-2">{name}</div>
             {entity !== 'artist' && <div className="text-xs text-zinc-500 mb-2">{row.artist}</div>}
+            {row.genre && <div className="text-xs text-zinc-500 mb-2">{row.genre}</div>}
             <div className="flex justify-between text-xs text-zinc-400">
-              <span>{plays} plays</span>
+              <span>{row.total_plays} plays</span>
               <span>#{row.rank_all_time}</span>
             </div>
           </div>
         )
       })}
+      {pageLoading && rows.length > 0 && (
+        <div className="col-span-full text-center text-xs text-zinc-600 py-2 animate-pulse">Loading…</div>
+      )}
     </div>
   )
 }
 
-function SplitView({ rows, entity, cols, navigate, onRowClick }) {
+function SplitView({ rows, entity, cols, onRowClick }) {
   const [selected, setSelected] = useState(rows.length > 0 ? rows[0] : null)
   const selectedName = selected ? (entity === 'artist' ? selected.artist : entity === 'album' ? selected.album : selected.track) : null
 
@@ -492,8 +691,7 @@ function SplitView({ rows, entity, cols, navigate, onRowClick }) {
           </thead>
           <tbody>
             {rows.map((row, i) => (
-              <tr key={i}
-                onClick={() => setSelected(row)}
+              <tr key={i} onClick={() => setSelected(row)}
                 className={`border-b border-zinc-800/50 cursor-pointer transition-colors ${
                   selected === row ? 'bg-zinc-700/60' : 'hover:bg-zinc-800/40'
                 }`}>
@@ -523,6 +721,8 @@ function SplitView({ rows, entity, cols, navigate, onRowClick }) {
     </div>
   )
 }
+
+// ─── Viz ──────────────────────────────────────────────────────────────────────
 
 function nameOf(entity, row) {
   return entity === 'artist' ? row.artist : entity === 'album' ? row.album : row.track
@@ -585,126 +785,171 @@ function SummaryViz({ rows, entity, vizType, axes }) {
   )
 }
 
-const TOP_N_OPTIONS = [25, 50, 100, 250]
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export function Discover() {
   const navigate = useNavigate()
   const store = useUIStore()
   const actionBus = useActionBus()
 
+  // Single open-panel tracker — enforces mutual exclusion across all panels
+  const [openPanel, setOpenPanel] = useState(null)
+  const openOne = (name) => setOpenPanel(name)
+  const closeAll = () => setOpenPanel(null)
+
+  const [searchParams, setSearchParams] = useSearchParams()
+  const urlGenre = searchParams.get('genre')
+  const urlMood  = searchParams.get('mood')
+
   const entity  = store.discoverEntity
   const search  = store.discoverSearch
   const sortBy  = store.discoverSortBy
   const sortDir = store.discoverSortDir
-  const topN    = store.discoverTopN
   const vizType = store.discoverVizType
   const axes    = store.discoverVizAxes
   const selectedCols = store.discoverColumns ?? DEFAULT_COLS[entity]
   const filters = store.discoverFilters
-  const view = store.discoverView
+  const view    = store.discoverView
   const reports = store.discoverReports
-  const sets = store.discoverSets
+  const sets    = store.discoverSets
   const activeSetId = store.discoverActiveSetId
 
-  const setEntity  = (e) => {
+  const setEntity = (e) => {
     store.setDiscoverEntity(e)
     store.setDiscoverColumns(DEFAULT_COLS[e])
     store.setDiscoverSort('rank_all_time', 'asc')
   }
-  const setSearch  = store.setDiscoverSearch
+
+  // Apply ?view= / ?genre= / ?mood= from URL on mount
+  useEffect(() => {
+    const viewParam = searchParams.get('view')
+    const map = { artists: 'artist', albums: 'album', tracks: 'track' }
+    if (viewParam && map[viewParam]) setEntity(map[viewParam])
+    else if (urlMood) setEntity('track')
+  }, []) // eslint-disable-line
   const setSort    = store.setDiscoverSort
-  const setTopN    = store.setDiscoverTopN
   const setVizType = store.setDiscoverVizType
+
+  // ── Pagination state ────────────────────────────────────────────────────────
+  const [rows, setRows] = useState([])
+  const [total, setTotal] = useState(0)
+  const [pageLoading, setPageLoading] = useState(false)
+  const loadingRef = useRef(false)
+  const hasMore = rows.length < total
+
+  const buildFetchParams = useCallback((offset) => {
+    const p = { sort_by: sortBy, sort_dir: sortDir, limit: PAGE_SIZE, offset }
+    if (search) p.search = search
+    if (activeSetId) p.set_id = activeSetId
+    if (urlGenre) p.genre_filter = urlGenre
+    if (urlMood && entity === 'track') p.mood_filter = urlMood
+    filters.forEach((f, i) => {
+      if (f.field && f.operator && f.value !== '') {
+        p[`filter_field_${i}`] = f.field
+        p[`filter_operator_${i}`] = f.operator
+        p[`filter_value_${i}`] = f.value
+      }
+    })
+    return p
+  }, [sortBy, sortDir, search, activeSetId, urlGenre, urlMood, entity, filters])
+
+  const fetchEntities = useCallback((offset, append) => {
+    if (loadingRef.current && append) return
+    loadingRef.current = true
+    setPageLoading(true)
+    const fetcher = entity === 'artist' ? analytics.entitiesArtists
+      : entity === 'album' ? analytics.entitiesAlbums
+      : analytics.entitiesTracks
+    fetcher(buildFetchParams(offset))
+      .then(res => {
+        setRows(prev => append ? [...prev, ...res.rows] : res.rows)
+        setTotal(res.total)
+      })
+      .catch(console.error)
+      .finally(() => { loadingRef.current = false; setPageLoading(false) })
+  }, [entity, buildFetchParams])
+
+  useEffect(() => {
+    loadingRef.current = false
+    setRows([])
+    setTotal(0)
+    fetchEntities(0, false)
+  }, [entity, sortBy, sortDir, search, JSON.stringify(filters), activeSetId, urlGenre, urlMood]) // eslint-disable-line
+
+  const loadMore = useCallback(() => {
+    if (loadingRef.current || rows.length >= total) return
+    fetchEntities(rows.length, true)
+  }, [rows.length, total, fetchEntities])
+
+  const handleTableScroll = useCallback((e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    if (scrollHeight - scrollTop - clientHeight < 300 && hasMore && !loadingRef.current) loadMore()
+  }, [hasMore, loadMore])
+
+  const handleGenreEdit = useCallback((artist, genre) => {
+    setRows(prev => prev.map(r => r.artist === artist ? { ...r, genre } : r))
+  }, [])
+
   const setView = (v) => {
     store.setDiscoverView(v)
-    if (actionBus?.execute) actionBus.execute([{ type: 'set_view', payload: { view: v } }])
+    actionBus?.execute([{ type: 'set_view', payload: { view: v } }])
   }
   const setColumns = (cols) => {
     store.setDiscoverColumns(cols)
-    if (actionBus?.execute) actionBus.execute([{ type: 'set_columns', payload: { column_ids: cols } }])
+    actionBus?.execute([{ type: 'set_columns', payload: { column_ids: cols } }])
   }
 
-  const handleSaveReport = (report) => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'save_report', payload: report }])
-    }
+  const handleSaveReport   = (r)  => actionBus?.execute([{ type: 'save_report',   payload: r }])
+  const handleLoadReport   = (id) => actionBus?.execute([{ type: 'load_report',   payload: { report_id: id } }])
+  const handleDeleteReport = (id) => actionBus?.execute([{ type: 'delete_report', payload: { report_id: id } }])
+  const handleCreateSet    = (p)  => actionBus?.execute([{ type: 'create_set',    payload: p }])
+  const handleAddToSet     = (p)  => actionBus?.execute([{ type: 'add_to_set',    payload: p }])
+  const handleRemoveFromSet= (p)  => actionBus?.execute([{ type: 'remove_from_set', payload: p }])
+  const handleApplyFilter  = (p)  => {
+    if (p.entity_type && p.entity_type !== entity) setEntity(p.entity_type)
+    actionBus?.execute([{ type: 'apply_set_filter', payload: { set_id: p.id } }])
   }
+  const handleClearFilter  = ()   => actionBus?.execute([{ type: 'clear_set_filter', payload: {} }])
+  const handleDeleteSet    = (id) => store.removeDiscoverSet(id)
 
-  const handleLoadReport = (reportId) => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'load_report', payload: { report_id: reportId } }])
-    }
-  }
-
-  const handleDeleteReport = (reportId) => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'delete_report', payload: { report_id: reportId } }])
-    }
-  }
-
-  const handleCreateSet = (payload) => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'create_set', payload }])
-    }
-  }
-
-  const handleAddToSet = (payload) => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'add_to_set', payload }])
-    }
-  }
-
-  const handleRemoveFromSet = (payload) => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'remove_from_set', payload }])
-    }
-  }
-
-  const handleApplySetFilter = (payload) => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'apply_set_filter', payload }])
-    }
-  }
-
-  const handleClearSetFilter = () => {
-    if (actionBus?.execute) {
-      actionBus.execute([{ type: 'clear_set_filter', payload: {} }])
-    }
-  }
-
-  const buildFilterParams = () => {
-    const p = {}
-    filters.forEach((f, idx) => {
-      p[`filter_field_${idx}`] = f.field
-      p[`filter_operator_${idx}`] = f.operator
-      p[`filter_value_${idx}`] = f.value
-    })
-    return p
-  }
-
-  const { data: raw, loading } = useChartData(
-    () => {
-      const p = {
-        sort_by: sortBy,
-        sort_dir: sortDir,
-        limit: topN,
-        search: search || undefined,
-        ...buildFilterParams(),
-        set_id: activeSetId || undefined,
-      }
-      if (entity === 'artist') return analytics.entitiesArtists(p)
-      if (entity === 'album')  return analytics.entitiesAlbums(p)
-      return analytics.entitiesTracks(p)
-    },
-    [entity, sortBy, sortDir, search, topN, filters, activeSetId]
-  )
-
-  const rows = raw?.rows ?? []
-  const total = raw?.total ?? 0
   const allCols = Object.values(ALL_COLS[entity]).flat()
-  const cols = allCols.filter(c => selectedCols.includes(c.key))
+  const cols   = allCols.filter(c => selectedCols.includes(c.key))
+
+  // ── Column resize ────────────────────────────────────────────────────────────
+  const [resizing, setResizing] = useState(null) // { storeKey, startX, startWidth }
+  const didDrag = useRef(false)
+
+  const handleResizeMouseDown = useCallback((e, col) => {
+    e.preventDefault()
+    e.stopPropagation()
+    didDrag.current = false
+    const th = e.currentTarget.closest('th')
+    setResizing({ storeKey: `${entity}_${col.key}`, startX: e.clientX, startWidth: th.offsetWidth })
+  }, [entity])
+
+  useEffect(() => {
+    if (!resizing) return
+    const onMove = (e) => {
+      didDrag.current = true
+      const newWidth = Math.max(40, resizing.startWidth + (e.clientX - resizing.startX))
+      store.setDiscoverColumnWidth(resizing.storeKey, newWidth)
+    }
+    const onUp = () => setResizing(null)
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+  }, [resizing, store])
+
+  const colStyle = useCallback((col) => {
+    const saved = store.discoverColumnWidths[`${entity}_${col.key}`]
+    return saved ? { width: saved, minWidth: saved, maxWidth: saved } : {}
+  }, [entity, store.discoverColumnWidths])
 
   const handleSort = useCallback((key) => {
+    if (didDrag.current) return
     if (sortBy === key) setSort(key, sortDir === 'asc' ? 'desc' : 'asc')
     else setSort(key, 'desc')
   }, [sortBy, sortDir, setSort])
@@ -713,12 +958,15 @@ export function Discover() {
     navigate(`/explore/${entity}/${encodeURIComponent(nameOf(entity, row))}`)
   }, [entity, navigate])
 
+  const activeSet = activeSetId ? sets.find(s => s.id === activeSetId) : null
+
   return (
     <AnalyticsShell>
       <div className="h-full flex flex-col">
 
         {/* Controls */}
         <div className="shrink-0 flex items-center gap-3 px-6 py-3 border-b border-zinc-800 flex-wrap">
+          {/* Entity type */}
           <div className="flex gap-1">
             {ENTITY_TYPES.map(t => (
               <button key={t.key} onClick={() => setEntity(t.key)}
@@ -729,56 +977,74 @@ export function Discover() {
               </button>
             ))}
           </div>
-          <ColumnPicker entity={entity} selectedColumns={selectedCols} onSelect={setColumns} />
-          <FilterBuilder entity={entity} filters={filters} onApply={() => {}} />
-          <ReportsPanel
-            entity={entity}
-            selectedCols={selectedCols}
-            filters={filters}
-            sortBy={sortBy}
-            sortDir={sortDir}
-            reports={reports}
-            onSave={handleSaveReport}
-            onLoad={handleLoadReport}
-            onDelete={handleDeleteReport}
+
+          {/* Dropdowns — mutually exclusive via openPanel */}
+          <ColumnPicker
+            entity={entity} selectedColumns={selectedCols} onSelect={setColumns}
+            forceClose={openPanel !== 'columns'}
+            onOpen={() => openOne('columns')}
           />
-          <SetsPanel
-            entity={entity}
-            sets={sets}
-            activeSetId={activeSetId}
-            onCreateSet={handleCreateSet}
-            onAddToSet={handleAddToSet}
-            onRemoveFromSet={handleRemoveFromSet}
-            onApplyFilter={handleApplySetFilter}
-            onClearFilter={handleClearSetFilter}
+          <FilterBuilder
+            entity={entity} filters={filters}
+            forceClose={openPanel !== 'filters'}
+            onOpen={() => openOne('filters')}
           />
+
+          {/* Reports button → modal */}
+          <button
+            onClick={() => setOpenPanel(p => p === 'reports' ? null : 'reports')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              reports.filter(r => r.entity === entity).length > 0
+                ? 'bg-violet-600 text-white'
+                : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+            }`}>
+            📋 Reports {reports.filter(r => r.entity === entity).length > 0 && `(${reports.filter(r => r.entity === entity).length})`}
+          </button>
+
+          {/* Sets button → modal */}
+          <button
+            onClick={() => setOpenPanel(p => p === 'sets' ? null : 'sets')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              activeSetId ? 'bg-emerald-600 text-white' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700'
+            }`}>
+            🎯 Groups & Sets {activeSet && `(${activeSet.name})`}
+          </button>
+
+          {/* Active genre filter chip */}
+          {urlGenre && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-violet-900/50 border border-violet-700/60 text-violet-300 rounded-lg text-xs font-medium">
+              Genre: {urlGenre}
+              <button
+                onClick={() => { const p = new URLSearchParams(searchParams); p.delete('genre'); setSearchParams(p) }}
+                className="text-violet-400 hover:text-white transition-colors leading-none">✕</button>
+            </span>
+          )}
+          {/* Active mood filter chip */}
+          {urlMood && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 bg-indigo-900/50 border border-indigo-700/60 text-indigo-300 rounded-lg text-xs font-medium">
+              Mood: {urlMood}
+              <button
+                onClick={() => { const p = new URLSearchParams(searchParams); p.delete('mood'); setSearchParams(p) }}
+                className="text-indigo-400 hover:text-white transition-colors leading-none">✕</button>
+            </span>
+          )}
+
+          {/* Search */}
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => store.setDiscoverSearch(e.target.value)}
             placeholder={`Search ${entity}s…`}
-            className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-200
-              placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 w-48"
+            className="bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 w-48"
           />
-          {/* Top-N selector */}
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] text-zinc-600 pr-0.5">Top:</span>
-            {TOP_N_OPTIONS.map(n => (
-              <button key={n} onClick={() => setTopN(n)}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                  topN === n ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-500 hover:text-zinc-300'
-                }`}>
-                {n}
-              </button>
-            ))}
-          </div>
-          {/* Viz toggle */}
+
+          {/* Viz */}
           <div className="flex items-center gap-1">
             <span className="text-[11px] text-zinc-600 pr-0.5">Viz:</span>
             {[
-              { key: 'bar',     label: 'Bar' },
+              { key: 'bar', label: 'Bar' },
               { key: 'scatter', label: 'Scatter' },
-              { key: 'bubble',  label: 'Bubble' },
-              { key: 'pie',     label: 'Pie' },
+              { key: 'bubble', label: 'Bubble' },
+              { key: 'pie', label: 'Pie' },
             ].map(v => (
               <button key={v.key} onClick={() => setVizType(vizType === v.key ? null : v.key)}
                 className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
@@ -788,13 +1054,14 @@ export function Discover() {
               </button>
             ))}
           </div>
-          {/* View toggle */}
+
+          {/* View */}
           <div className="flex items-center gap-1">
             <span className="text-[11px] text-zinc-600 pr-0.5">View:</span>
             {[
               { key: 'table', label: '📊 Table' },
               { key: 'cards', label: '🃏 Cards' },
-              { key: 'split', label: '⬌ Split' },
+              { key: 'split', label: '⬌ Split'  },
             ].map(v => (
               <button key={v.key} onClick={() => setView(v.key)}
                 className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
@@ -804,70 +1071,124 @@ export function Discover() {
               </button>
             ))}
           </div>
+
           <span className="text-xs text-zinc-600 ml-auto">
             {rows.length} / {total.toLocaleString()} {entity}s
           </span>
-          {loading && <span className="text-xs text-zinc-600 animate-pulse">Loading…</span>}
+          {pageLoading && rows.length === 0 && <span className="text-xs text-zinc-600 animate-pulse">Loading…</span>}
         </div>
 
-        {/* Summary viz */}
-        <SummaryViz rows={rows} entity={entity} vizType={vizType} axes={axes} />
+        {/* Viz panel */}
+        <div className={`transition-all duration-500 ${
+          store.highlightedChart === 'discover_viz' && vizType
+            ? 'ring-2 ring-violet-400/70 ring-offset-1 ring-offset-zinc-950 shadow-[0_0_24px_rgba(139,92,246,0.3)] rounded-xl mx-4'
+            : ''
+        }`}>
+          <SummaryViz rows={rows} entity={entity} vizType={vizType} axes={axes} />
+        </div>
 
-        {/* View content */}
+        {/* Table / Cards / Split */}
         {view === 'table' && (
-          <div className="flex-1 overflow-auto">
-            <table className="w-full text-xs border-collapse">
-            <thead className="sticky top-0 z-10 bg-zinc-900">
-              <tr className="border-b border-zinc-800">
-                {cols.map(col => (
-                  <th key={col.key}
-                    onClick={col.sortable ? () => handleSort(col.key) : undefined}
-                    className={`px-4 py-2.5 text-left font-medium select-none whitespace-nowrap
-                      ${col.align === 'right' ? 'text-right' : ''}
-                      ${col.flex ? 'w-full' : col.w}
-                      ${col.sortable ? 'cursor-pointer text-zinc-400 hover:text-zinc-200' : 'text-zinc-500'}
-                      ${sortBy === col.key ? 'text-violet-400' : ''}`}>
-                    {col.label}
-                    {sortBy === col.key && (
-                      <span className="ml-1 text-violet-400">{sortDir === 'asc' ? '↑' : '↓'}</span>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={i}
-                  onClick={() => handleRowClick(row)}
-                  className="border-b border-zinc-800/50 hover:bg-zinc-800/40 cursor-pointer transition-colors">
+          <div
+            className={`flex-1 overflow-auto transition-all duration-500 ${
+              store.highlightedChart === 'discover_table' ? 'ring-2 ring-inset ring-violet-400/40' : ''
+            }`}
+            onScroll={handleTableScroll}
+          >
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 z-10 bg-zinc-900">
+                <tr className="border-b border-zinc-800">
                   {cols.map(col => (
-                    <td key={col.key}
-                      className={`px-4 py-2 text-zinc-300 whitespace-nowrap
-                        ${col.align === 'right' ? 'text-right tabular-nums' : ''}
-                        ${col.flex ? '' : col.w}`}>
-                      {col.delta
-                        ? <DeltaCell value={row[col.key]} />
-                        : col.fmt
-                          ? col.fmt(row[col.key])
-                          : (row[col.key] ?? '—')}
-                    </td>
+                    <th key={col.key}
+                      onClick={col.sortable ? () => handleSort(col.key) : undefined}
+                      style={{ ...colStyle(col), position: 'relative' }}
+                      className={`px-4 py-2.5 text-left font-medium select-none whitespace-nowrap overflow-hidden border-r border-zinc-800 last:border-r-0
+                        ${col.align === 'right' ? 'text-right' : ''}
+                        ${!colStyle(col).width ? (col.flex ? 'w-full' : col.w) : ''}
+                        ${col.sortable ? 'cursor-pointer text-zinc-400 hover:text-zinc-200' : 'text-zinc-500'}
+                        ${sortBy === col.key ? 'text-violet-400' : ''}`}>
+                      {col.label}
+                      {sortBy === col.key && (
+                        <span className="ml-1 text-violet-400">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                      {/* Resize handle — double-click resets to default */}
+                      <div
+                        className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-violet-500/50 active:bg-violet-500/80 select-none z-10"
+                        onMouseDown={(e) => handleResizeMouseDown(e, col)}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => { e.stopPropagation(); store.setDiscoverColumnWidth(`${entity}_${col.key}`, null) }}
+                      />
+                    </th>
                   ))}
                 </tr>
-              ))}
-              {!loading && rows.length === 0 && (
-                <tr>
-                  <td colSpan={cols.length} className="px-4 py-8 text-center text-zinc-600">No results</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-            </div>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr key={i} onClick={() => handleRowClick(row)}
+                    className="border-b border-zinc-800/50 hover:bg-zinc-800/40 cursor-pointer transition-colors">
+                    {cols.map(col => (
+                      <td key={col.key}
+                        style={colStyle(col)}
+                        className={`px-4 py-2 text-zinc-300 whitespace-nowrap overflow-hidden text-ellipsis border-r border-zinc-800 last:border-r-0
+                          ${col.align === 'right' ? 'text-right tabular-nums' : ''}
+                          ${!colStyle(col).width ? (col.flex ? '' : col.w) : ''}`}>
+                        {col.editable
+                          ? <GenreCell value={row[col.key]} artist={row.artist} onSave={g => handleGenreEdit(row.artist, g)} />
+                          : col.delta
+                            ? <DeltaCell value={row[col.key]} />
+                            : col.fmt
+                              ? col.fmt(row[col.key])
+                              : (row[col.key] ?? '—')}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+                {rows.length === 0 && !pageLoading && (
+                  <tr>
+                    <td colSpan={cols.length} className="px-4 py-8 text-center text-zinc-600">No results</td>
+                  </tr>
+                )}
+                {pageLoading && rows.length > 0 && (
+                  <tr>
+                    <td colSpan={cols.length} className="px-4 py-3 text-center text-xs text-zinc-600 animate-pulse">Loading…</td>
+                  </tr>
+                )}
+                {!hasMore && rows.length > 0 && !pageLoading && (
+                  <tr>
+                    <td colSpan={cols.length} className="px-4 py-3 text-center text-xs text-zinc-700">
+                      All {total.toLocaleString()} {entity}s loaded
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         )}
         {view === 'cards' && (
-          <CardView rows={rows} entity={entity} cols={cols} navigate={navigate} onRowClick={handleRowClick} />
+          <CardView rows={rows} entity={entity} cols={cols} onRowClick={handleRowClick}
+            hasMore={hasMore} onScrollEnd={loadMore} pageLoading={pageLoading} />
         )}
         {view === 'split' && (
-          <SplitView rows={rows} entity={entity} cols={cols} navigate={navigate} onRowClick={handleRowClick} />
+          <SplitView rows={rows} entity={entity} cols={cols} onRowClick={handleRowClick} />
+        )}
+
+        {/* Modals */}
+        {openPanel === 'reports' && (
+          <ReportsModal
+            entity={entity} selectedCols={selectedCols} filters={filters}
+            sortBy={sortBy} sortDir={sortDir} reports={reports}
+            onSave={handleSaveReport} onLoad={handleLoadReport} onDelete={handleDeleteReport}
+            onClose={closeAll}
+          />
+        )}
+        {openPanel === 'sets' && (
+          <SetsModal
+            entity={entity} sets={sets} activeSetId={activeSetId} rows={rows}
+            onCreateSet={handleCreateSet} onAddToSet={handleAddToSet}
+            onRemoveFromSet={handleRemoveFromSet} onApplyFilter={handleApplyFilter}
+            onClearFilter={handleClearFilter} onDeleteSet={handleDeleteSet}
+            onClose={closeAll}
+          />
         )}
 
       </div>

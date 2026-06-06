@@ -30,7 +30,7 @@ _VALID_SORT: dict[str, set] = {
     "album": {
         "album", "artist", "total_plays",
         "plays_7d", "plays_30d", "plays_90d", "plays_180d", "plays_1y",
-        "plays_7d_delta", "plays_30d_delta", "plays_90d_delta",
+        "plays_7d_delta", "plays_30d_delta", "plays_90d_delta", "plays_180d_delta", "plays_1y_delta",
         "rank_all_time", "rank_7d", "rank_30d",
         "rank_7d_delta", "rank_30d_delta",
         "first_heard", "last_heard", "days_since_last_heard",
@@ -39,7 +39,7 @@ _VALID_SORT: dict[str, set] = {
     "track": {
         "track", "artist", "total_plays",
         "plays_7d", "plays_30d", "plays_90d", "plays_180d", "plays_1y",
-        "plays_7d_delta", "plays_30d_delta", "plays_90d_delta",
+        "plays_7d_delta", "plays_30d_delta", "plays_90d_delta", "plays_180d_delta", "plays_1y_delta",
         "rank_all_time", "rank_7d", "rank_30d",
         "rank_7d_delta", "rank_30d_delta",
         "first_heard", "last_heard", "days_since_last_heard",
@@ -50,6 +50,22 @@ _VALID_SORT: dict[str, set] = {
 
 def _db():
     return duckdb.connect(str(DB_PATH))
+
+
+def _ensure_genre_override():
+    conn = _db()
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS artist_genre_override (
+                artist_name VARCHAR PRIMARY KEY,
+                genre       VARCHAR NOT NULL,
+                updated_at  TIMESTAMPTZ DEFAULT now()
+            )
+        """)
+    finally:
+        conn.close()
+
+_ensure_genre_override()
 
 
 def _date_filter(from_date: str | None, to_date: str | None, col: str = "scrobbled_at") -> tuple[str, list]:
@@ -235,7 +251,11 @@ def genre_tag_tracks(
         date_and = "AND s.scrobbled_at < ?::TIMESTAMPTZ"
     conn = _db()
     rows = conn.execute(f"""
-        SELECT s.track, s.artist, COUNT(*) AS plays
+        SELECT s.track, s.artist, COUNT(*) AS plays,
+            COALESCE(
+                (SELECT ago.genre FROM artist_genre_override ago WHERE ago.artist_name = s.artist LIMIT 1),
+                (SELECT att.tag FROM artist_tags att WHERE att.artist_name = s.artist ORDER BY att.weight DESC LIMIT 1)
+            ) AS genre
         FROM raw_scrobbles s
         WHERE LOWER(s.artist) IN (
             SELECT LOWER(artist_name) FROM artist_tags WHERE LOWER(tag) = LOWER(?)
@@ -245,7 +265,7 @@ def genre_tag_tracks(
         LIMIT ?
     """, [tag] + params + [limit]).fetchall()
     conn.close()
-    return [{"track": r[0], "artist": r[1], "plays": r[2]} for r in rows]
+    return [{"track": r[0], "artist": r[1], "plays": r[2], "genre": r[3]} for r in rows]
 
 
 @router.get("/analytics/mood-breakdown")
@@ -283,7 +303,7 @@ def mood_tag_tracks(
     where_scrobbles, params = _date_filter(from_date, to_date)
     conn = _db()
     rows = conn.execute(f"""
-        SELECT s.track, s.artist, COUNT(*) AS plays
+        SELECT s.track, s.artist, COUNT(*) AS plays, ANY_VALUE(tm.tags) AS mood_tags
         FROM raw_scrobbles s
         JOIN track_mood tm ON LOWER(s.track) = LOWER(tm.track)
                            AND LOWER(s.artist) = LOWER(tm.artist)
@@ -294,7 +314,38 @@ def mood_tag_tracks(
         LIMIT ?
     """, params + [tag, limit]).fetchall()
     conn.close()
-    return [{"track": r[0], "artist": r[1], "plays": r[2]} for r in rows]
+    return [{"track": r[0], "artist": r[1], "plays": r[2], "mood_tags": list(r[3]) if r[3] else []} for r in rows]
+
+
+@router.get("/analytics/moods")
+def available_moods():
+    """All distinct mood tags across track_mood."""
+    conn = _db()
+    rows = conn.execute("""
+        SELECT DISTINCT mood FROM track_mood, UNNEST(tags) AS t(mood) ORDER BY mood
+    """).fetchall()
+    conn.close()
+    return [r[0] for r in rows if r[0]]
+
+
+class TrackMoodBody(BaseModel):
+    track: str
+    artist: str
+    tags: list[str]
+
+
+@router.patch("/analytics/track/mood")
+def set_track_mood(body: TrackMoodBody):
+    """Replace mood tags for a track (marks overridden=true)."""
+    conn = _db()
+    try:
+        conn.execute("""
+            UPDATE track_mood SET tags = ?, overridden = true, analyzed_at = now()
+            WHERE LOWER(track) = LOWER(?) AND LOWER(artist) = LOWER(?)
+        """, [body.tags, body.track, body.artist])
+    finally:
+        conn.close()
+    return {"ok": True}
 
 
 @router.get("/analytics/heatmap")
@@ -662,7 +713,7 @@ def entities_artists(
         conditions.append("LOWER(artist) LIKE LOWER(?)")
         params.append(f"%{search}%")
     if set_id:
-        conditions.append("artist IN (SELECT display_name FROM set_members WHERE set_id = ?)")
+        conditions.append("artist IN (SELECT entity_id FROM set_members WHERE set_id = ?)")
         params.append(set_id)
     if genre_filter:
         conditions.append("artist IN (SELECT artist_name FROM artist_tags WHERE LOWER(tag) = LOWER(?))")
@@ -678,7 +729,12 @@ def entities_artists(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     total = conn.execute(f"SELECT COUNT(*) FROM artist_stats {where}", params).fetchone()[0]
     rows = conn.execute(f"""
-        SELECT * FROM artist_stats
+        SELECT ast.*,
+            COALESCE(
+                (SELECT ago.genre FROM artist_genre_override ago WHERE ago.artist_name = ast.artist LIMIT 1),
+                (SELECT att.tag FROM artist_tags att WHERE att.artist_name = ast.artist ORDER BY att.weight DESC LIMIT 1)
+            ) AS genre
+        FROM artist_stats ast
         {where}
         ORDER BY {sort_by} {sort_dir} NULLS LAST, total_plays DESC NULLS LAST
         LIMIT ? OFFSET ?
@@ -720,7 +776,12 @@ def entities_albums(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     total = conn.execute(f"SELECT COUNT(*) FROM album_stats {where}", params).fetchone()[0]
     rows = conn.execute(f"""
-        SELECT * FROM album_stats
+        SELECT ast.*,
+            COALESCE(
+                (SELECT ago.genre FROM artist_genre_override ago WHERE ago.artist_name = ast.artist LIMIT 1),
+                (SELECT att.tag FROM artist_tags att WHERE att.artist_name = ast.artist ORDER BY att.weight DESC LIMIT 1)
+            ) AS genre
+        FROM album_stats ast
         {where}
         ORDER BY {sort_by} {sort_dir} NULLS LAST, total_plays DESC NULLS LAST
         LIMIT ? OFFSET ?
@@ -738,6 +799,8 @@ def entities_tracks(
     offset: int = 0,
     search: str | None = None,
     genre_filter: str | None = None,
+    mood_filter: str | None = None,
+    set_id: str | None = None,
     request: Request = None,
 ):
     if sort_by not in _VALID_SORT["track"]:
@@ -751,6 +814,16 @@ def entities_tracks(
     if genre_filter:
         conditions.append("artist IN (SELECT artist_name FROM artist_tags WHERE LOWER(tag) = LOWER(?))")
         params.append(genre_filter)
+    if mood_filter:
+        conditions.append("""EXISTS (
+            SELECT 1 FROM track_mood tm
+            WHERE LOWER(tm.track) = LOWER(track) AND LOWER(tm.artist) = LOWER(artist)
+            AND list_contains(tm.tags, ?)
+        )""")
+        params.append(mood_filter)
+    if set_id:
+        conditions.append("(track || '|||' || artist) IN (SELECT entity_id FROM set_members WHERE set_id = ?)")
+        params.append(set_id)
 
     # Parse and apply filters from query params
     if request:
@@ -762,7 +835,12 @@ def entities_tracks(
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     total = conn.execute(f"SELECT COUNT(*) FROM track_stats {where}", params).fetchone()[0]
     rows = conn.execute(f"""
-        SELECT * FROM track_stats
+        SELECT ast.*,
+            COALESCE(
+                (SELECT ago.genre FROM artist_genre_override ago WHERE ago.artist_name = ast.artist LIMIT 1),
+                (SELECT att.tag FROM artist_tags att WHERE att.artist_name = ast.artist ORDER BY att.weight DESC LIMIT 1)
+            ) AS genre
+        FROM track_stats ast
         {where}
         ORDER BY {sort_by} {sort_dir} NULLS LAST, total_plays DESC NULLS LAST
         LIMIT ? OFFSET ?
@@ -770,6 +848,30 @@ def entities_tracks(
     cols = [d[0] for d in conn.description]
     conn.close()
     return {"total": total, "rows": [_row_to_dict(r, cols) for r in rows]}
+
+
+class GenreOverrideBody(BaseModel):
+    artist: str
+    genre: str  # empty string = clear override
+
+
+@router.patch("/analytics/entities/genre")
+def set_genre_override(body: GenreOverrideBody):
+    conn = _db()
+    try:
+        if body.genre.strip():
+            conn.execute("""
+                INSERT INTO artist_genre_override (artist_name, genre, updated_at)
+                VALUES (?, ?, now())
+                ON CONFLICT (artist_name) DO UPDATE SET
+                    genre = excluded.genre,
+                    updated_at = excluded.updated_at
+            """, [body.artist, body.genre.strip()])
+        else:
+            conn.execute("DELETE FROM artist_genre_override WHERE artist_name = ?", [body.artist])
+    finally:
+        conn.close()
+    return {"ok": True}
 
 
 @router.get("/analytics/top-entities")
@@ -1172,19 +1274,4 @@ def get_metrics(chart_type: str | None = None):
 
 
 # ---------------------------------------------------------------------------
-# Analytics Chat
-# ---------------------------------------------------------------------------
-
-@router.post("/analytics/chat")
-def chat(body: AnalyticsChatRequest):
-    """Chat endpoint for AI-powered UI navigation."""
-    from backend.analytics_chat import analytics_chat as handle_chat
-
-    try:
-        result = handle_chat(body)
-        return result
-    except Exception as e:
-        return {
-            "response": f"Error: {str(e)}",
-            "ui_actions": [],
-        }
+# Analytics Chat endpoint is defined in main.py (supports ANALYTICS_CHAT_STUBS)

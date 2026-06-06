@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { AnalyticsShell } from './AnalyticsShell';
 import { useUIStore } from '../../store/uiStore';
 import { ActivityChart } from './charts/ActivityChart';
@@ -17,30 +17,35 @@ const PERIODS = [
     { key: '90d', label: '90d' },
     { key: '1y', label: '1y' },
     { key: '2y', label: '2y' },
+    { key: '3y', label: '3y' },
+    { key: '4y', label: '4y' },
+    { key: '5y', label: '5y' },
     { key: 'all', label: 'All' },
 ];
 
 const GRANULARITY = {
-    '7d': 'day',
-    '30d': 'day',
-    '90d': 'week',
-    '1y': 'week',
-    '2y': 'month',
-    all: 'month',
+    '7d': 'day', '30d': 'day', '90d': 'week', '1y': 'week',
+    '2y': 'month', '3y': 'month', '4y': 'month', '5y': 'month', all: 'month',
 };
+
+// Charts that occupy one grid column (half-width); all others span both
+const HALF_WIDTH = new Set(['genre', 'mood', 'dow', 'new_artists']);
 
 const CHART_LABELS = {
-    activity: 'Activity',
-    genre_mood: 'Genre & Mood',
-    top_entities: 'Top Artists/Albums/Tracks',
-    heatmap: 'Heatmap',
-    dow_new: 'Day of Week & New Artists',
-    streak: 'Streak Calendar',
+    activity:    'Activity',
+    genre:       'Genre Breakdown',
+    mood:        'Mood / Energy',
+    top_entities:'Top Artists/Albums/Tracks',
+    heatmap:     'Heatmap',
+    dow:         'Plays by Day',
+    new_artists: 'New Artists',
+    streak:      'Streak Calendar',
 };
 
-// Draggable wrapper for each chart section
 function DraggableSection({ id, dragState, onDragStart, onDragOver, onDrop, onToggleHide, children }) {
+    const highlightedChart = useUIStore(s => s.highlightedChart);
     const isOver = dragState.over === id && dragState.dragging !== id;
+    const isHighlighted = !isOver && highlightedChart === id;
     return (
         <div
             draggable
@@ -48,7 +53,12 @@ function DraggableSection({ id, dragState, onDragStart, onDragOver, onDrop, onTo
             onDragOver={(e) => { e.preventDefault(); onDragOver(id); }}
             onDrop={() => onDrop(id)}
             onDragEnd={() => onDragStart(null)}
-            className={`relative group transition-all ${isOver ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-zinc-900 rounded-xl' : ''} ${dragState.dragging === id ? 'opacity-50' : 'opacity-100'}`}
+            className={`relative group transition-all duration-500 ${
+                HALF_WIDTH.has(id) ? '' : 'col-span-2'
+            } ${
+                isOver        ? 'ring-2 ring-violet-500 ring-offset-2 ring-offset-zinc-900 rounded-xl' :
+                isHighlighted ? 'ring-2 ring-violet-400/70 ring-offset-1 ring-offset-zinc-950 shadow-[0_0_24px_rgba(139,92,246,0.3)] rounded-2xl' : ''
+            } ${dragState.dragging === id ? 'opacity-50' : 'opacity-100'}`}
         >
             {/* Drag handle + hide button — visible on hover */}
             <div className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
@@ -85,16 +95,13 @@ export function Dashboard() {
     const [dragState, setDragState] = useState({ dragging: null, over: null });
 
     const handleDragStart = (id) => setDragState(s => ({ ...s, dragging: id }));
-    const handleDragOver = (id) => setDragState(s => ({ ...s, over: id }));
+    const handleDragOver  = (id) => setDragState(s => ({ ...s, over: id }));
     const handleDrop = (targetId) => {
         const { dragging } = dragState;
-        if (!dragging || dragging === targetId) {
-            setDragState({ dragging: null, over: null });
-            return;
-        }
+        if (!dragging || dragging === targetId) { setDragState({ dragging: null, over: null }); return; }
         const order = [...dashboardChartOrder];
         const fromIdx = order.indexOf(dragging);
-        const toIdx = order.indexOf(targetId);
+        const toIdx   = order.indexOf(targetId);
         if (fromIdx === -1 || toIdx === -1) return;
         order.splice(fromIdx, 1);
         order.splice(toIdx, 0, dragging);
@@ -103,23 +110,32 @@ export function Dashboard() {
     };
 
     const dragProps = (id) => ({
-        id,
-        dragState,
+        id, dragState,
         onDragStart: handleDragStart,
-        onDragOver: handleDragOver,
-        onDrop: handleDrop,
+        onDragOver:  handleDragOver,
+        onDrop:      handleDrop,
         onToggleHide: toggleDashboardChart,
     });
 
-    // Render each slot by its ID
     const renderSlot = (id) => {
         switch (id) {
             case 'activity':
-                return (
-                    <DraggableSection key={id} {...dragProps(id)}>
-                        <ActivityChart fromDate={fromDate} toDate={toDate} granularity={gran} />
-                    </DraggableSection>
-                );
+                return <DraggableSection key={id} {...dragProps(id)}><ActivityChart fromDate={fromDate} toDate={toDate} granularity={gran} /></DraggableSection>;
+            case 'genre':
+                return <DraggableSection key={id} {...dragProps(id)}><GenreChart fromDate={fromDate} toDate={toDate} /></DraggableSection>;
+            case 'mood':
+                return <DraggableSection key={id} {...dragProps(id)}><MoodChart fromDate={fromDate} toDate={toDate} /></DraggableSection>;
+            case 'top_entities':
+                return <DraggableSection key={id} {...dragProps(id)}><TopEntitiesChart fromDate={fromDate} toDate={toDate} period={period} genreFilter={dashboardGenreFilter} /></DraggableSection>;
+            case 'heatmap':
+                return <DraggableSection key={id} {...dragProps(id)}><HeatmapChart fromDate={fromDate} toDate={toDate} /></DraggableSection>;
+            case 'dow':
+                return <DraggableSection key={id} {...dragProps(id)}><DayOfWeekChart fromDate={fromDate} toDate={toDate} /></DraggableSection>;
+            case 'new_artists':
+                return <DraggableSection key={id} {...dragProps(id)}><NewArtistsChart fromDate={fromDate} toDate={toDate} /></DraggableSection>;
+            case 'streak':
+                return <DraggableSection key={id} {...dragProps(id)}><StreakCalendar fromDate={fromDate} toDate={toDate} /></DraggableSection>;
+            // legacy IDs — keep working if stored state uses old names
             case 'genre_mood':
                 return (
                     <DraggableSection key={id} {...dragProps(id)}>
@@ -127,23 +143,6 @@ export function Dashboard() {
                             <GenreChart fromDate={fromDate} toDate={toDate} />
                             <MoodChart fromDate={fromDate} toDate={toDate} />
                         </div>
-                    </DraggableSection>
-                );
-            case 'top_entities':
-                return (
-                    <DraggableSection key={id} {...dragProps(id)}>
-                        <TopEntitiesChart
-                            fromDate={fromDate}
-                            toDate={toDate}
-                            period={period}
-                            genreFilter={dashboardGenreFilter}
-                        />
-                    </DraggableSection>
-                );
-            case 'heatmap':
-                return (
-                    <DraggableSection key={id} {...dragProps(id)}>
-                        <HeatmapChart fromDate={fromDate} toDate={toDate} />
                     </DraggableSection>
                 );
             case 'dow_new':
@@ -155,23 +154,19 @@ export function Dashboard() {
                         </div>
                     </DraggableSection>
                 );
-            case 'streak':
-                return (
-                    <DraggableSection key={id} {...dragProps(id)}>
-                        <StreakCalendar fromDate={fromDate} toDate={toDate} />
-                    </DraggableSection>
-                );
             default:
                 return null;
         }
     };
 
+    const visible = dashboardChartOrder.filter(id => !dashboardHiddenCharts.includes(id));
+
     return (
         <AnalyticsShell>
             <div className="h-full overflow-y-auto">
-                <div className="px-6 py-5 space-y-4 max-w-7xl mx-auto">
+                <div className="px-6 py-5 max-w-7xl mx-auto">
                     {/* Time range + genre filter */}
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3 mb-4">
                         <div className="flex items-center gap-1">
                             {PERIODS.map((p) => (
                                 <button
@@ -187,26 +182,22 @@ export function Dashboard() {
                                 </button>
                             ))}
                         </div>
-
                         {dashboardGenreFilter && (
                             <div className="flex items-center gap-2 px-3 py-1.5 bg-violet-900/50 rounded-lg text-xs text-violet-200">
                                 <span>Genre: <span className="font-medium">{dashboardGenreFilter}</span></span>
-                                <button
-                                    onClick={() => setDashboardGenreFilter(null)}
-                                    className="text-violet-300 hover:text-violet-100"
-                                >
-                                    ✕
-                                </button>
+                                <button onClick={() => setDashboardGenreFilter(null)} className="text-violet-300 hover:text-violet-100">✕</button>
                             </div>
                         )}
                     </div>
 
-                    {/* Charts in drag-reorderable order — skip hidden */}
-                    {dashboardChartOrder.filter(id => !dashboardHiddenCharts.includes(id)).map(renderSlot)}
+                    {/* 2-column grid — half-width charts sit side-by-side, full-width span both */}
+                    <div className="grid grid-cols-2 gap-4">
+                        {visible.map(renderSlot)}
+                    </div>
 
                     {/* Hidden charts restore strip */}
                     {dashboardHiddenCharts.length > 0 && (
-                        <div className="flex flex-wrap gap-2 pt-2 border-t border-zinc-800">
+                        <div className="flex flex-wrap gap-2 pt-4 mt-4 border-t border-zinc-800">
                             <span className="text-[10px] text-zinc-600 uppercase tracking-wide self-center">Hidden:</span>
                             {dashboardHiddenCharts.map(id => (
                                 <button key={id} onClick={() => toggleDashboardChart(id)}

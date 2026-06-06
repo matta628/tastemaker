@@ -1,17 +1,13 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { HighchartsReact } from 'highcharts-react-official'
 import Highcharts from 'highcharts'
 import { analytics } from '../../../api'
 import { merge, COLORS } from './chartTheme'
 import { useChartData } from './useChartData'
-import { useUIStore } from '../../../store/uiStore'
 import { ChartCard } from './ChartCard'
 import { TagTracksTable } from './TagTracksTable'
 
 export function MoodChart({ fromDate, toDate }) {
-  const navigate = useNavigate()
-  const store = useUIStore()
   const [selectedTag, setSelectedTag] = useState(null)
 
   const { data, loading, error } = useChartData(
@@ -20,13 +16,7 @@ export function MoodChart({ fromDate, toDate }) {
   )
 
   const handleMoodClick = (moodName) => {
-    setSelectedTag(moodName)
-    // Create ephemeral set with this mood
-    const setId = Date.now()
-    store.addDiscoverSet(`${moodName} songs`, [])
-    store.setDiscoverActiveSetId(setId)
-    // Navigate to Discover
-    navigate('/discover?view=tracks&mood=' + encodeURIComponent(moodName))
+    setSelectedTag(prev => prev === moodName ? null : moodName)
   }
 
   const options = merge({

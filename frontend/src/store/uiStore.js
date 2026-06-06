@@ -8,7 +8,7 @@ export const useUIStore = create((set, get) => ({
     // Dashboard state
     dashboardPeriod: '90d',
     dashboardGenreFilter: null, // null or genre name
-    dashboardChartOrder: ['activity', 'genre_mood', 'top_entities', 'heatmap', 'dow_new', 'streak'],
+    dashboardChartOrder: ['activity', 'genre', 'mood', 'top_entities', 'heatmap', 'dow', 'new_artists', 'streak'],
     dashboardHiddenCharts: [],
     activeDashboardId: null,
     setDashboardPeriod: (period) => set({ dashboardPeriod: period }),
@@ -39,6 +39,8 @@ export const useUIStore = create((set, get) => ({
     setDeepDiveChartType: (ct) => set({ deepDiveChartType: ct }),
     setDeepDivePanel: (panel) => set({ deepDivePanel: panel }),
     setDeepDiveAnnotations: (v) => set({ deepDiveAnnotations: v }),
+    lastViewedEntity: null,
+    setLastViewedEntity: (entity) => set({ lastViewedEntity: entity }),
     addCompareEntity: (entity) =>
         set((s) => ({
             deepDiveCompareEntities: s.deepDiveCompareEntities.find(
@@ -67,6 +69,7 @@ export const useUIStore = create((set, get) => ({
         size: null,
     },
     discoverColumns: null, // null = default columns
+    discoverColumnWidths: {}, // { `${entity}_${colKey}`: px number }
     discoverView: 'table', // 'table'|'cards'|'split'
     discoverFilters: [], // [{ id, field, operator, value }]
     discoverReports: [], // [{ id, name, entity, columns, filters, sort_by, sort_dir }]
@@ -76,9 +79,9 @@ export const useUIStore = create((set, get) => ({
     setDiscoverReports: (reports) => set({ discoverReports: reports }),
     setDiscoverSets: (sets) => set({ discoverSets: sets }),
     setDiscoverActiveSetId: (setId) => set({ discoverActiveSetId: setId }),
-    addDiscoverSet: (name, members = []) =>
+    addDiscoverSet: (name, entityType = 'artist', members = []) =>
         set((s) => ({
-            discoverSets: [...s.discoverSets, { id: Date.now(), name, members }],
+            discoverSets: [...s.discoverSets, { id: Date.now(), name, entity_type: entityType, members }],
         })),
     updateDiscoverSet: (setId, updates) =>
         set((s) => ({
@@ -99,6 +102,13 @@ export const useUIStore = create((set, get) => ({
     setDiscoverVizAxes: (axes) =>
         set((s) => ({ discoverVizAxes: { ...s.discoverVizAxes, ...axes } })),
     setDiscoverColumns: (cols) => set({ discoverColumns: cols }),
+    setDiscoverColumnWidth: (key, width) =>
+        set((s) => {
+            const w = { ...s.discoverColumnWidths }
+            if (width == null) delete w[key]
+            else w[key] = width
+            return { discoverColumnWidths: w }
+        }),
     setDiscoverView: (view) => set({ discoverView: view }),
     setDiscoverFilters: (filters) => set({ discoverFilters: filters }),
     addDiscoverFilter: () =>
@@ -163,4 +173,9 @@ export const useUIStore = create((set, get) => ({
     chatPanelOpen: false,
     setChatPanelOpen: (open) => set({ chatPanelOpen: open }),
     toggleChatPanel: () => set((s) => ({ chatPanelOpen: !s.chatPanelOpen })),
+
+    // Action bus highlight — which chart/section is currently spotlit
+    highlightedChart: null,
+    setHighlightedChart: (id) => set({ highlightedChart: id }),
+    clearHighlightedChart: () => set({ highlightedChart: null }),
 }));

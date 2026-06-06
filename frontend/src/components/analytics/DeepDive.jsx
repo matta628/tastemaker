@@ -10,8 +10,8 @@ import { useUIStore } from '../../store/uiStore'
 import { analytics } from '../../api'
 import { periodToDates, merge, COLORS } from './charts/chartTheme'
 
-const PERIODS = ['7d', '30d', '90d', '1y', '2y', 'all']
-const AUTO_GRAN = { '7d': 'day', '30d': 'day', '90d': 'week', '1y': 'week', '2y': 'month', 'all': 'month' }
+const PERIODS = ['7d', '30d', '90d', '1y', '2y', '3y', '4y', '5y', 'all']
+const AUTO_GRAN = { '7d': 'day', '30d': 'day', '90d': 'week', '1y': 'week', '2y': 'month', '3y': 'month', '4y': 'month', '5y': 'month', 'all': 'month' }
 const GRAN_OPTIONS = ['day', 'week', 'month', 'year']
 const CHART_TYPES = ['line', 'area', 'bar']
 const METRIC_OPTIONS = ['plays', 'unique_tracks']
@@ -19,7 +19,7 @@ const METRIC_OPTIONS = ['plays', 'unique_tracks']
 function StatPill({ label, value }) {
   if (value === null || value === undefined) return null
   return (
-    <div className="bg-zinc-800/60 rounded-xl px-3 py-2">
+    <div className="bg-zinc-800/60 rounded-xl px-3 py-2 flex flex-col justify-center">
       <div className="text-[10px] text-zinc-500 uppercase tracking-wide">{label}</div>
       <div className="text-sm font-medium text-zinc-200 mt-0.5">{value}</div>
     </div>
@@ -32,7 +32,7 @@ function StatsPanel({ name }) {
   if (!data) return <div className="text-zinc-700 text-xs">No stats yet — run a sync</div>
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 gap-2 flex-1 auto-rows-fr">
       <StatPill label="All-time plays"    value={data.total_plays?.toLocaleString()} />
       <StatPill label="7d plays"          value={data.plays_7d} />
       <StatPill label="30d plays"         value={data.plays_30d} />
@@ -57,7 +57,7 @@ function AlbumsPanel({ name, fromDate, toDate }) {
   )
   if (loading) return <div className="text-zinc-700 text-xs py-4 text-center">Loading…</div>
   return (
-    <div className="space-y-1 max-h-64 overflow-y-auto">
+    <div className="space-y-1">
       {(data || []).map(a => (
         <button key={a.album}
           onClick={() => navigate(`/explore/album/${encodeURIComponent(a.album)}`)}
@@ -98,7 +98,7 @@ function TimelinePanel({ name }) {
   const maxPlays = Math.max(...data.map(d => d.plays))
 
   return (
-    <div className="space-y-1 max-h-80 overflow-y-auto pr-1">
+    <div className="space-y-1 pr-1">
       {data.slice().reverse().map(d => {
         const pct = maxPlays > 0 ? (d.plays / maxPlays) * 100 : 0
         const firstMonth = d.first_date ? MONTH_NAMES[new Date(d.first_date).getUTCMonth()] : ''
@@ -128,7 +128,7 @@ function SessionsPanel({ name }) {
   if (!data?.length) return <div className="text-zinc-700 text-xs py-4 text-center">No sessions found</div>
 
   return (
-    <div className="space-y-0.5 max-h-80 overflow-y-auto">
+    <div className="space-y-0.5">
       {data.map((s, i) => {
         const isOpen = expanded === i
         const dur = s.duration_minutes
@@ -189,7 +189,7 @@ function AlbumTracksPanel({ name, fromDate, toDate }) {
   )
   if (loading) return <div className="text-zinc-700 text-xs py-4 text-center">Loading…</div>
   return (
-    <div className="space-y-1 max-h-64 overflow-y-auto">
+    <div className="space-y-1">
       {(data || []).map(t => (
         <button key={t.track}
           onClick={() => navigate(`/explore/track/${encodeURIComponent(t.track)}`)}
@@ -210,7 +210,7 @@ function GenericStatsPanel({ type, name }) {
   if (loading) return <div className="text-zinc-700 text-xs">Loading stats…</div>
   if (!data) return <div className="text-zinc-700 text-xs">No stats yet — run a sync</div>
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+    <div className="grid grid-cols-1 gap-2 flex-1 auto-rows-fr">
       <StatPill label="All-time plays"  value={data.total_plays?.toLocaleString()} />
       <StatPill label="7d plays"        value={data.plays_7d} />
       <StatPill label="30d plays"       value={data.plays_30d} />
@@ -232,6 +232,7 @@ function ComparePanel({ primaryName, primaryType, fromDate, toDate, granularity 
   const [search, setSearch] = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [showSuggestions, setShowSuggestions] = useState(false)
+  const [hoveredIndex, setHoveredIndex] = useState(-1)
   const [allSeries, setAllSeries] = useState([])
   const [loading, setLoading] = useState(false)
   const searchRef = useRef(null)
@@ -269,7 +270,7 @@ function ComparePanel({ primaryName, primaryType, fromDate, toDate, granularity 
       name: s.name,
       color: COLORS[i % COLORS.length],
       lineWidth: s.primary ? 2.5 : 1.5,
-      data: (s.data || []).map(d => [Date.parse(d.date), d.plays]),
+      data: (s.data || []).map(d => [Date.parse(d.date), d.value ?? d.plays ?? 0]),
     })),
   })
 
@@ -286,6 +287,8 @@ function ComparePanel({ primaryName, primaryType, fromDate, toDate, granularity 
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search])
+
+  useEffect(() => { setHoveredIndex(-1) }, [suggestions])
 
   const handleAdd = (name) => {
     const n = (name ?? search).trim()
@@ -318,9 +321,27 @@ function ComparePanel({ primaryName, primaryType, fromDate, toDate, granularity 
             <input
               value={search}
               onChange={e => { setSearch(e.target.value); setShowSuggestions(true) }}
-              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              onKeyDown={e => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault()
+                  setHoveredIndex(i => Math.min(i + 1, suggestions.length - 1))
+                  setShowSuggestions(true)
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setHoveredIndex(i => Math.max(i - 1, -1))
+                } else if (e.key === 'Escape') {
+                  setShowSuggestions(false)
+                  setHoveredIndex(-1)
+                } else if (e.key === 'Enter') {
+                  if (hoveredIndex >= 0 && suggestions[hoveredIndex]) {
+                    handleAdd(suggestions[hoveredIndex].name)
+                  } else {
+                    handleAdd()
+                  }
+                }
+              }}
               onFocus={() => setShowSuggestions(true)}
-              onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+              onBlur={() => setTimeout(() => { setShowSuggestions(false); setHoveredIndex(-1) }, 150)}
               placeholder="Add artist to compare…"
               className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200
                 placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
@@ -332,9 +353,13 @@ function ComparePanel({ primaryName, primaryType, fromDate, toDate, granularity 
           </div>
           {showSuggestions && suggestions.length > 0 && (
             <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl overflow-hidden">
-              {suggestions.map(s => (
+              {suggestions.map((s, i) => (
                 <button key={s.name} onMouseDown={() => handleAdd(s.name)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors text-left">
+                  onMouseEnter={() => setHoveredIndex(i)}
+                  onMouseLeave={() => setHoveredIndex(-1)}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs text-zinc-300 transition-colors text-left ${
+                    i === hoveredIndex ? 'bg-zinc-700' : 'hover:bg-zinc-800'
+                  }`}>
                   <span>{s.name}</span>
                   <span className="text-zinc-600">{s.plays?.toLocaleString()} plays</span>
                 </button>
@@ -349,6 +374,83 @@ function ComparePanel({ primaryName, primaryType, fromDate, toDate, granularity 
         ? <div className="text-zinc-600 text-xs py-4 text-center">Loading…</div>
         : <HighchartsReact highcharts={Highcharts} options={options} />
       }
+    </div>
+  )
+}
+
+function EntitySearchBar({ currentType }) {
+  const navigate = useNavigate()
+  const [type, setType] = useState(currentType)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [open, setOpen] = useState(false)
+  const [idx, setIdx] = useState(-1)
+
+  useEffect(() => { setType(currentType) }, [currentType])
+
+  useEffect(() => {
+    if (query.length < 2) { setResults([]); return }
+    const t = setTimeout(() => {
+      analytics.search(query, { limit: 8 })
+        .then(r => setResults((r || []).filter(x => x.type === type)))
+        .catch(() => setResults([]))
+    }, 200)
+    return () => clearTimeout(t)
+  }, [query, type])
+
+  useEffect(() => { setIdx(-1) }, [results])
+
+  const go = (name) => {
+    navigate(`/explore/${type}/${encodeURIComponent(name)}`)
+    setQuery('')
+    setResults([])
+    setOpen(false)
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex gap-0.5">
+        {['artist', 'album', 'track'].map(t => (
+          <button key={t} onClick={() => { setType(t); setQuery('') }}
+            className={`px-2 py-1 rounded text-[11px] font-medium transition-colors capitalize ${
+              type === t ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'
+            }`}>
+            {t}
+          </button>
+        ))}
+      </div>
+      <div className="relative">
+        <input
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true) }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => { setOpen(false); setIdx(-1) }, 150)}
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setIdx(i => Math.min(i + 1, results.length - 1)) }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); setIdx(i => Math.max(i - 1, -1)) }
+            else if (e.key === 'Enter' && idx >= 0 && results[idx]) go(results[idx].name)
+            else if (e.key === 'Escape') { setOpen(false); setIdx(-1) }
+          }}
+          placeholder={`Search ${type}s…`}
+          className="w-48 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-zinc-200
+            placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
+        />
+        {open && results.length > 0 && (
+          <div className="absolute z-30 top-full right-0 mt-1 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl overflow-hidden">
+            {results.map((r, i) => (
+              <button key={r.name} onMouseDown={() => go(r.name)}
+                onMouseEnter={() => setIdx(i)}
+                onMouseLeave={() => setIdx(-1)}
+                className={`w-full flex items-center justify-between px-3 py-2 text-xs text-zinc-300 transition-colors text-left ${
+                  i === idx ? 'bg-zinc-700' : 'hover:bg-zinc-800'
+                }`}>
+                <span>{r.name}</span>
+                <span className="text-zinc-600">{r.plays?.toLocaleString()} plays</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -371,24 +473,28 @@ function ToggleGroup({ options, value, onChange, labels }) {
 export function DeepDive() {
   const { type = 'artist', id = '' } = useParams()
   const name = decodeURIComponent(id)
+  const navigate = useNavigate()
   const store = useUIStore()
 
-  const period      = store.deepDivePeriod
-  const setPeriod   = store.setDeepDivePeriod
+  const period       = store.deepDivePeriod
+  const setPeriod    = store.setDeepDivePeriod
   const granOverride = store.deepDiveGranularity
-  const setGran     = store.setDeepDiveGranularity
-  const chartType   = store.deepDiveChartType
+  const setGran      = store.setDeepDiveGranularity
+  const chartType    = store.deepDiveChartType
   const setChartType = store.setDeepDiveChartType
-  const metric      = store.deepDiveMetric ?? 'plays'
-  const setMetric   = store.setDeepDiveMetric
-  const panel       = store.deepDivePanel ?? 'Stats'
-  const setPanel    = store.setDeepDivePanel
-  const annotations = store.deepDiveAnnotations
+  const metric       = store.deepDiveMetric ?? 'plays'
+  const setMetric    = store.setDeepDiveMetric
+  const panel        = store.deepDivePanel ?? 'Stats'
+  const setPanel     = store.setDeepDivePanel
+  const annotations  = store.deepDiveAnnotations
 
   const { from_date: fromDate, to_date: toDate } = periodToDates(period)
   const gran = granOverride ?? AUTO_GRAN[period] ?? 'week'
 
-  // Fetch stats for annotation points (first heard, peak week)
+  useEffect(() => {
+    if (name && type) store.setLastViewedEntity({ type, id: name })
+  }, [type, name])
+
   const { data: statsData } = useChartData(
     () => type === 'artist' ? analytics.artistStats(name) : Promise.resolve(null),
     [name, type]
@@ -398,19 +504,44 @@ export function DeepDive() {
     statsData.peak_week_date && { date: statsData.peak_week_date, label: `Peak: ${statsData.peak_week_plays} plays` },
   ].filter(Boolean) : []
 
+  const panelContent = (
+    <>
+      {panel === 'Stats'    && type === 'artist' && <StatsPanel name={name} />}
+      {panel === 'Stats'    && type !== 'artist' && <GenericStatsPanel type={type} name={name} />}
+      {panel === 'Albums'   && type === 'artist' && <AlbumsPanel name={name} fromDate={fromDate} toDate={toDate} />}
+      {panel === 'Tracks'   && type === 'album'  && <AlbumTracksPanel name={name} fromDate={fromDate} toDate={toDate} />}
+      {panel === 'Similar'  && type === 'artist' && <SimilarPanel name={name} />}
+      {panel === 'Timeline' && type === 'artist' && <TimelinePanel name={name} />}
+      {panel === 'Sessions' && type === 'artist' && <SessionsPanel name={name} />}
+    </>
+  )
+
   return (
     <AnalyticsShell>
-      <div className="h-full overflow-y-auto">
-        <div className="px-6 py-5 space-y-4 max-w-5xl mx-auto">
+      <div className="h-full overflow-hidden xl:grid xl:grid-cols-[1fr_560px] xl:divide-x xl:divide-zinc-800">
 
-          {/* Header */}
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <p className="text-xs text-zinc-600 uppercase tracking-wide">{type}</p>
-              <h1 className="text-xl font-semibold text-zinc-100 mt-0.5">{name}</h1>
+        {/* ── Left column: charts ── */}
+        <div className="h-full overflow-y-auto">
+          <div className="px-6 py-5 space-y-4">
+
+            {/* Header: entity name + search */}
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <button
+                  onClick={() => navigate(-1)}
+                  className="flex items-center gap-1 text-xs text-zinc-600 hover:text-zinc-400 transition-colors mb-1.5 group"
+                >
+                  <span className="group-hover:-translate-x-0.5 transition-transform">←</span>
+                  <span>back</span>
+                </button>
+                <p className="text-xs text-zinc-600 uppercase tracking-wide">{type}</p>
+                <h1 className="text-xl font-semibold text-zinc-100 mt-0.5">{name}</h1>
+              </div>
+              <EntitySearchBar currentType={type} />
             </div>
-            <div className="flex flex-wrap gap-2 shrink-0 items-center">
-              {/* Period */}
+
+            {/* Controls */}
+            <div className="flex flex-wrap gap-2 items-center">
               <div className="flex gap-1">
                 {PERIODS.map(p => (
                   <button key={p} onClick={() => { setPeriod(p); setGran(null) }}
@@ -421,28 +552,9 @@ export function DeepDive() {
                   </button>
                 ))}
               </div>
-              {/* Granularity */}
-              <ToggleGroup
-                options={GRAN_OPTIONS}
-                value={gran}
-                onChange={setGran}
-                labels={{ day: 'D', week: 'W', month: 'M', year: 'Y' }}
-              />
-              {/* Chart type */}
-              <ToggleGroup
-                options={CHART_TYPES}
-                value={chartType}
-                onChange={setChartType}
-                labels={{ line: 'Line', area: 'Area', bar: 'Bar' }}
-              />
-              {/* Metric */}
-              <ToggleGroup
-                options={METRIC_OPTIONS}
-                value={metric}
-                onChange={setMetric}
-                labels={{ plays: 'Plays', unique_tracks: 'Tracks' }}
-              />
-              {/* Annotations toggle */}
+              <ToggleGroup options={GRAN_OPTIONS} value={gran} onChange={setGran} labels={{ day: 'D', week: 'W', month: 'M', year: 'Y' }} />
+              <ToggleGroup options={CHART_TYPES} value={chartType} onChange={setChartType} labels={{ line: 'Line', area: 'Area', bar: 'Bar' }} />
+              <ToggleGroup options={METRIC_OPTIONS} value={metric} onChange={setMetric} labels={{ plays: 'Plays', unique_tracks: 'Tracks' }} />
               <button onClick={() => store.setDeepDiveAnnotations(!annotations)}
                 className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
                   annotations ? 'bg-zinc-700 text-zinc-200' : 'text-zinc-600 hover:text-zinc-400'
@@ -450,40 +562,70 @@ export function DeepDive() {
                 Annot.
               </button>
             </div>
-          </div>
 
-          {/* Time series chart */}
-          <HistoryChart type={type} name={name} fromDate={fromDate} toDate={toDate} granularity={gran} chartType={chartType} metric={metric} annotationPoints={annotationPoints} />
-
-          {/* Panel selector + content */}
-          <div className="bg-zinc-900 rounded-2xl border border-zinc-800">
-            <div className="flex gap-1 px-4 pt-4 pb-2 border-b border-zinc-800">
-              {(PANELS[type] ?? PANELS.artist).map(p => (
-                <button key={p} onClick={() => setPanel(panel === p ? null : p)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    panel === p ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
-                  }`}>
-                  {p}
-                </button>
-              ))}
+            {/* History chart */}
+            <div className={`rounded-2xl transition-all duration-500 ${
+              store.highlightedChart === 'deepdive_chart'
+                ? 'ring-2 ring-violet-400/70 ring-offset-1 ring-offset-zinc-950 shadow-[0_0_24px_rgba(139,92,246,0.3)]'
+                : ''
+            }`}>
+              <HistoryChart type={type} name={name} fromDate={fromDate} toDate={toDate} granularity={gran} chartType={chartType} metric={metric} annotationPoints={annotationPoints} />
             </div>
-            {panel && (
-              <div className="p-4">
-                {panel === 'Stats'    && type === 'artist' && <StatsPanel name={name} />}
-                {panel === 'Stats'    && type !== 'artist' && <GenericStatsPanel type={type} name={name} />}
-                {panel === 'Albums'   && type === 'artist' && <AlbumsPanel name={name} fromDate={fromDate} toDate={toDate} />}
-                {panel === 'Tracks'   && type === 'album'  && <AlbumTracksPanel name={name} fromDate={fromDate} toDate={toDate} />}
-                {panel === 'Similar'  && type === 'artist' && <SimilarPanel name={name} />}
-                {panel === 'Timeline' && type === 'artist' && <TimelinePanel name={name} />}
-                {panel === 'Sessions' && type === 'artist' && <SessionsPanel name={name} />}
-                {panel === 'Compare' && (
-                  <ComparePanel primaryName={name} primaryType={type} fromDate={fromDate} toDate={toDate} granularity={gran} />
-                )}
-              </div>
-            )}
-          </div>
 
+            {/* Panel tabs — mobile only; desktop uses right column */}
+            <div className="xl:hidden bg-zinc-900 rounded-2xl border border-zinc-800">
+              <div className="flex flex-wrap gap-1 px-4 pt-4 pb-2 border-b border-zinc-800">
+                {(PANELS[type] ?? PANELS.artist).map(p => (
+                  <button key={p} onClick={() => setPanel(panel === p ? null : p)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      panel === p ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                    }`}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+              {panel && panel !== 'Compare' && <div className="p-4">{panelContent}</div>}
+              {panel === 'Compare' && (
+                <div className="p-4">
+                  <ComparePanel primaryName={name} primaryType={type} fromDate={fromDate} toDate={toDate} granularity={gran} />
+                </div>
+              )}
+            </div>
+
+            {/* Compare chart — always below history */}
+            <div className="bg-zinc-900 rounded-2xl border border-zinc-800">
+              <div className="px-4 pt-4 pb-2 border-b border-zinc-800">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide">Compare</p>
+              </div>
+              <div className="p-4">
+                <ComparePanel primaryName={name} primaryType={type} fromDate={fromDate} toDate={toDate} granularity={gran} />
+              </div>
+            </div>
+
+          </div>
         </div>
+
+        {/* ── Right column: panel details (desktop only) ── */}
+        <div className="hidden xl:flex xl:flex-col h-full overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 px-6 py-5">
+            <div className="flex-1 flex flex-col min-h-0 bg-zinc-900 rounded-2xl border border-zinc-800 overflow-hidden">
+              <div className="shrink-0 flex flex-wrap gap-1 px-4 pt-4 pb-2 border-b border-zinc-800">
+                {(PANELS[type] ?? PANELS.artist).filter(p => p !== 'Compare').map(p => (
+                  <button key={p} onClick={() => setPanel(panel === p ? null : p)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      panel === p ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+                    }`}>
+                    {p}
+                  </button>
+                ))}
+              </div>
+              {panel && panel !== 'Compare' && (
+                <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-4">{panelContent}</div>
+              )}
+            </div>
+          </div>
+        </div>
+
       </div>
     </AnalyticsShell>
   )

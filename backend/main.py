@@ -1214,6 +1214,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
         "ui_actions": [
             {"type": "navigate", "payload": {"path": "/timemachine"}},
             {"type": "set_era_preset", "payload": {"preset": "2021", "from": "2021-06-01", "to": "2021-08-31"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "timemachine_chart"}},
             {"type": "show_toast", "payload": {"message": "Time Machine → Summer 2021"}},
         ],
     }),
@@ -1223,6 +1224,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
         "ui_actions": [
             {"type": "navigate", "payload": {"path": "/explore/artist/Radiohead"}},
             {"type": "set_time_range", "payload": {"period": "all"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "deepdive_chart"}},
             {"type": "show_toast", "payload": {"message": "Deep Dive → Radiohead (all time)"}},
         ],
     }),
@@ -1234,6 +1236,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
             {"type": "set_time_range", "payload": {"period": "all"}},
             {"type": "open_panel", "payload": {"panel": "Compare"}},
             {"type": "add_compare_entity", "payload": {"type": "artist", "id": "Mitski"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "deepdive_chart"}},
             {"type": "show_toast", "payload": {"message": "Compare: Lana Del Rey vs Mitski"}},
         ],
     }),
@@ -1244,6 +1247,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
             {"type": "navigate", "payload": {"path": "/discover"}},
             {"type": "set_entity_type", "payload": {"entity_type": "artist"}},
             {"type": "apply_filter", "payload": {"sort_by": "total_plays", "sort_dir": "desc"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "discover_table"}},
             {"type": "show_toast", "payload": {"message": "Discover → dormant artists filter"}},
         ],
     }),
@@ -1256,6 +1260,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
             {"type": "set_top_n", "payload": {"n": 50}},
             {"type": "set_viz_type", "payload": {"viz_type": "scatter"}},
             {"type": "set_viz_axes", "payload": {"x_metric": "total_plays", "y_metric": "days_since_last_heard"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "discover_viz"}},
             {"type": "show_toast", "payload": {"message": "Discover → scatter: plays vs recency"}},
         ],
     }),
@@ -1265,6 +1270,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
         "ui_actions": [
             {"type": "navigate", "payload": {"path": "/dashboard"}},
             {"type": "set_time_range", "payload": {"period": "1y"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "top_entities"}},
             {"type": "show_toast", "payload": {"message": "Dashboard → top artists (1y)"}},
         ],
     }),
@@ -1273,6 +1279,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
         "response": "[STUB] Opening the Dashboard to show your genre breakdown chart.",
         "ui_actions": [
             {"type": "navigate", "payload": {"path": "/dashboard"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "genre_mood"}},
             {"type": "show_toast", "payload": {"message": "Dashboard → genre breakdown"}},
         ],
     }),
@@ -1281,6 +1288,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
         "response": "[STUB] Opening Nirvana deep dive.",
         "ui_actions": [
             {"type": "navigate", "payload": {"path": "/explore/artist/Nirvana"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "deepdive_chart"}},
             {"type": "show_toast", "payload": {"message": "Deep Dive → Nirvana"}},
         ],
     }),
@@ -1290,6 +1298,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
         "ui_actions": [
             {"type": "navigate", "payload": {"path": "/timemachine"}},
             {"type": "set_era_preset", "payload": {"preset": "2024", "from": "2024-01-01", "to": "2024-12-31"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "timemachine_chart"}},
             {"type": "show_toast", "payload": {"message": "Time Machine → 2024 vs 2025 compare"}},
         ],
     }),
@@ -1300,6 +1309,7 @@ _CHAT_STUBS: list[tuple[list[str], dict]] = [
             {"type": "navigate", "payload": {"path": "/discover"}},
             {"type": "set_entity_type", "payload": {"entity_type": "artist"}},
             {"type": "apply_filter", "payload": {"sort_by": "total_plays", "sort_dir": "desc"}},
+            {"type": "highlight_chart", "payload": {"chart_id": "discover_table"}},
             {"type": "show_toast", "payload": {"message": "Discover → all artists"}},
         ],
     }),

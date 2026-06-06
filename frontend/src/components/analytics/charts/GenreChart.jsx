@@ -30,10 +30,6 @@ export function GenreChart({ fromDate, toDate }) {
     if (pathname === '/dashboard') {
       store.setDashboardGenreFilter(tagName)
     } else {
-      // Otherwise, navigate to Discover with ephemeral set
-      const setId = Date.now()
-      store.addDiscoverSet(`${tagName} artists`, [])
-      store.setDiscoverActiveSetId(setId)
       navigate('/discover?view=artists&genre=' + encodeURIComponent(tagName))
     }
   }

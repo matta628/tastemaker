@@ -66,16 +66,22 @@ export function periodToDates(period) {
     case '30d':  return { from_date: from(30),  to_date: to }
     case '90d':  return { from_date: from(90),  to_date: to }
     case '180d': return { from_date: from(180), to_date: to }
-    case '1y':   return { from_date: from(365), to_date: to }
-    case '2y':   return { from_date: from(730), to_date: to }
+    case '1y':   return { from_date: from(365),  to_date: to }
+    case '2y':   return { from_date: from(730),  to_date: to }
+    case '3y':   return { from_date: from(1095), to_date: to }
+    case '4y':   return { from_date: from(1460), to_date: to }
+    case '5y':   return { from_date: from(1825), to_date: to }
     default:     return {}
   }
 }
 
 // Maps a period to the appropriate plays_* column name for stats tables
 export function periodToStatsCol(period) {
-  return { '7d': 'plays_7d', '30d': 'plays_30d', '90d': 'plays_90d',
-           '180d': 'plays_180d', '1y': 'plays_1y', '2y': 'plays_2y' }[period] ?? 'total_plays'
+  return {
+    '7d': 'plays_7d', '30d': 'plays_30d', '90d': 'plays_90d',
+    '180d': 'plays_180d', '1y': 'plays_1y', '2y': 'plays_2y',
+    '3y': 'plays_5y', '4y': 'plays_5y', '5y': 'plays_5y',
+  }[period] ?? 'total_plays'
 }
 
 export const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

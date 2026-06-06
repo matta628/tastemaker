@@ -16,8 +16,13 @@ Workflow:
     5. scp ./mood_export.parquet pi@100.116.200.117:~/
     6. Import on Pi (see project docs)
 
+Re-tag using stored scores (no model re-run needed):
+    python -m backend.pipelines.analyze_mood --retag [--threshold 0.60]
+    Skips rows with overridden=true so manual edits are preserved.
+
 Usage:
     python -m backend.pipelines.analyze_mood [--db PATH] [--work-db PATH] [--merge] [--reanalyze]
+    python -m backend.pipelines.analyze_mood --retag [--threshold FLOAT]
 """
 import argparse
 import json
@@ -36,7 +41,7 @@ MOOD_LABELS = [
     "dance", "psychedelic", "otherworldly",
 ]
 MODEL_NAME   = "cross-encoder/nli-deberta-v3-small"
-SCORE_THRESH = 0.3
+SCORE_THRESH = 0.60
 MAX_TOKENS   = 512
 
 _CREATE_TRACK_MOOD = """
@@ -60,6 +65,37 @@ def _truncate_to_tokens(text: str, tokenizer) -> str:
     return tokenizer.decode(ids[:MAX_TOKENS], skip_special_tokens=True)
 
 
+def retag(db_path: Path, threshold: float = 0.60):
+    """Re-derive tags from stored scores JSON without re-running the model.
+
+    Skips rows where overridden=true so manual UI edits are preserved.
+    """
+    import duckdb
+
+    conn = duckdb.connect(str(db_path))
+    rows = conn.execute(
+        "SELECT track, artist, scores FROM track_mood WHERE overridden = false AND scores IS NOT NULL"
+    ).fetchall()
+    log.info(f"[mood] Re-tagging {len(rows)} rows with threshold={threshold}")
+
+    updated = 0
+    for track, artist, scores_json in rows:
+        scores = json.loads(scores_json)
+        new_tags = sorted(
+            [label for label, score in scores.items() if score >= threshold],
+            key=lambda l: scores[l],
+            reverse=True,
+        )
+        conn.execute(
+            "UPDATE track_mood SET tags = ? WHERE LOWER(track) = LOWER(?) AND LOWER(artist) = LOWER(?)",
+            [new_tags, track, artist],
+        )
+        updated += 1
+
+    conn.close()
+    log.info(f"[mood] Done. {updated} rows re-tagged.")
+
+
 def merge(db_path: Path, work_db_path: Path):
     """Copy completed mood rows from mood_work.db into the main tastemaker.db."""
     import duckdb
@@ -68,22 +104,26 @@ def merge(db_path: Path, work_db_path: Path):
         log.error(f"[mood] Work DB not found: {work_db_path}")
         raise SystemExit(1)
 
-    conn = duckdb.connect(str(db_path))
-    conn.execute(f"ATTACH '{work_db_path}' AS work_src (READ_ONLY)")
-
-    count = conn.execute("SELECT COUNT(*) FROM work_src.track_mood").fetchone()[0]
+    # Read into Python first — cross-database ATTACH + INSERT SELECT crashes DuckDB
+    # when scanning complex types (VARCHAR[], JSON) across attached databases.
+    src = duckdb.connect(str(work_db_path), read_only=True)
+    count = src.execute("SELECT COUNT(*) FROM track_mood").fetchone()[0]
     log.info(f"[mood] Merging {count} rows from {work_db_path.name} → {db_path.name}")
+    rows = src.execute(
+        "SELECT track, artist, tags, scores, model, overridden, analyzed_at FROM track_mood"
+    ).fetchall()
+    src.close()
 
-    conn.execute("""
+    conn = duckdb.connect(str(db_path))
+    conn.executemany("""
         INSERT INTO track_mood (track, artist, tags, scores, model, overridden, analyzed_at)
-        SELECT track, artist, tags, scores, model, overridden, analyzed_at
-        FROM work_src.track_mood
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (track, artist) DO UPDATE SET
             tags        = excluded.tags,
             scores      = excluded.scores,
             model       = excluded.model,
             analyzed_at = excluded.analyzed_at
-    """)
+    """, rows)
 
     merged = conn.execute("SELECT COUNT(*) FROM track_mood").fetchone()[0]
     conn.close()
@@ -162,11 +202,17 @@ if __name__ == "__main__":
                         help="Re-run all already-analyzed tracks (use after adding new labels)")
     parser.add_argument("--merge", action="store_true",
                         help="Merge completed mood_work.db results back into the main DB")
+    parser.add_argument("--retag", action="store_true",
+                        help="Re-derive tags from stored scores JSON (no model re-run)")
+    parser.add_argument("--threshold", type=float, default=0.60,
+                        help="Confidence threshold for --retag (default: 0.60)")
     args = parser.parse_args()
 
     work_db = args.work_db or (args.db.parent / "mood_work.db")
 
     if args.merge:
         merge(args.db, work_db)
+    elif args.retag:
+        retag(args.db, threshold=args.threshold)
     else:
         run(args.db, work_db, reanalyze=args.reanalyze)

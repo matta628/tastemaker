@@ -58,6 +58,9 @@ export const analytics = {
   entitiesArtists:(p = {}) => request('GET', `/analytics/entities/artists${buildQuery(p)}`),
   entitiesAlbums: (p = {}) => request('GET', `/analytics/entities/albums${buildQuery(p)}`),
   entitiesTracks: (p = {}) => request('GET', `/analytics/entities/tracks${buildQuery(p)}`),
+  setGenreOverride: (body)  => request('PATCH', '/analytics/entities/genre', body),
+  setTrackMood:     (body)  => request('PATCH', '/analytics/track/mood', body),
+  availableMoods:   ()      => request('GET',   '/analytics/moods'),
   topEntities:    (p = {}) => request('GET', `/analytics/top-entities${buildQuery(p)}`),
 
   genreTagTracks: (tag, p = {}) => request('GET', `/analytics/genre/${encodeURIComponent(tag)}/tracks${buildQuery(p)}`),

@@ -270,6 +270,14 @@ def create_schema():
     # This is what lets the agent traverse from music → books → guitar.
     # -------------------------------------------------------------------------
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS artist_genre_override (
+            artist_name VARCHAR PRIMARY KEY,
+            genre       VARCHAR NOT NULL,
+            updated_at  TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS taste_tags (
             tag_id      VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
             entity_type VARCHAR NOT NULL CHECK (entity_type IN ('book', 'artist', 'track')),
