@@ -1,5 +1,5 @@
 // Debug tab: full-screen lyrics carousel to see the Genius integration in action.
-import { TrackLoader } from './AgentChat'
+import { TrackLoader } from './OldChat'
 import { useLyrics } from './useLyrics'
 
 export function Vibes() {

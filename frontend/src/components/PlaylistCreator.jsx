@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useChatContext } from './ChatContext'
-import { TrackLoader } from './AgentChat'
+import { TrackLoader } from './OldChat'
 import { useLyrics } from './useLyrics'
 
 // ── Icons ──────────────────────────────────────────────────────────────────
