@@ -15,6 +15,7 @@ import { MoodReview } from './components/MoodReview'
 import { useLyrics } from './components/useLyrics'
 import { SyncButton } from './components/SyncButton'
 import { StaleBanner } from './components/StaleBanner'
+import { DemoBanner } from './components/DemoBanner'
 import { Dashboard } from './components/analytics/Dashboard'
 import { DeepDive } from './components/analytics/DeepDive'
 import { Explore } from './components/analytics/Explore'
@@ -117,6 +118,7 @@ function GuitarApp() {
     <div className="h-svh overflow-hidden bg-zinc-950 flex flex-col">
       <LyricsTape tracks={lyrics} />
 
+      <DemoBanner />
       <StaleBanner />
 
       <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
@@ -265,6 +267,13 @@ export default function App() {
             : <ChatProvider>
                 <GuitarApp />
               </ChatProvider>
+        } />
+        {/* Stable alias so "← Guitar" works from the analytics side even in
+            demo mode, where "/" always redirects to /dashboard. */}
+        <Route path="/guitar" element={
+          <ChatProvider>
+            <GuitarApp />
+          </ChatProvider>
         } />
         <Route path="/dashboard"          element={<Dashboard />} />
         <Route path="/explore"            element={<Explore />} />

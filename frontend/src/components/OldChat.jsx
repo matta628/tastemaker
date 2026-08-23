@@ -3,6 +3,11 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useLyrics } from './useLyrics'
 import { useChatContext } from './ChatContext'
+import { useGhostScript } from '../hooks/useGhostScript'
+import guitar_chat_script from '../demo/fixtures/guitar_chat_script.js'
+
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true'
+const GHOST_TURNS = DEMO_MODE ? guitar_chat_script : []
 
 function SnippetLines({ snippet }) {
   const lines = snippet.split('\n').map(l => l.trim()).filter(Boolean)
@@ -157,7 +162,13 @@ export function OldChat({ onGoToPlaylist }) {
   const inputRef  = useRef(null)
 
   const assistantCount = messages.filter(m => m.role === 'assistant' && m.content !== null).length
-  const atLimit = assistantCount >= RESPONSE_LIMIT
+  // Demo mode's scripted conversation runs 6 turns — don't let the normal
+  // 3-response limit cut it short. ghostLocked (script exhausted) is the
+  // real stopping point there instead.
+  const atLimit = !DEMO_MODE && assistantCount >= RESPONSE_LIMIT
+
+  const ghost = useGhostScript(GHOST_TURNS)
+  const ghostLocked = DEMO_MODE && ghost.done
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -167,14 +178,17 @@ export function OldChat({ onGoToPlaylist }) {
     if (!streaming) inputRef.current?.focus()
   }, [streaming])
 
-  const handleSend = () => {
-    const text = input.trim()
-    if (!text || streaming) return
+  const handleSend = async () => {
+    const text = input.trim() || (DEMO_MODE && !ghost.done ? ghost.ghostText : '')
+    if (!text || streaming || ghostLocked) return
+    const isScriptedTurn = DEMO_MODE && !ghost.done && text === ghost.ghostText
     setInput('')
-    send(text)
+    await send(text)
+    if (isScriptedTurn) ghost.advance()
   }
 
   const handleKey = (e) => {
+    if (ghost.handleTabFill(e, input, setInput)) return
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }
 
@@ -235,7 +249,16 @@ export function OldChat({ onGoToPlaylist }) {
 
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-1 py-4 space-y-4">
-        {messages.length === 0 && (
+        {messages.length === 0 && DEMO_MODE && (
+          <div className="flex flex-col items-center justify-center h-full text-center gap-2 px-6">
+            <p className="text-zinc-400 text-sm">Ask anything about your taste.</p>
+            <p className="text-zinc-600 text-xs">
+              A scripted question is sitting in the input below — Tab to fill it in, Enter to send.
+            </p>
+          </div>
+        )}
+
+        {messages.length === 0 && !DEMO_MODE && (
           <div className="flex flex-col items-center justify-center h-full text-center gap-3 px-6">
             <p className="text-zinc-400 text-sm">Ask anything about your taste.</p>
             <div className="flex flex-wrap gap-2 justify-center">
@@ -325,8 +348,16 @@ export function OldChat({ onGoToPlaylist }) {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKey}
-                disabled={streaming}
-                placeholder={streaming ? 'Thinking… (you can switch tabs)' : 'Ask about your taste…'}
+                disabled={streaming || ghostLocked}
+                placeholder={
+                  ghostLocked
+                    ? "End of scripted demo — free typing isn't wired up in this static build."
+                    : streaming
+                    ? 'Thinking… (you can switch tabs)'
+                    : DEMO_MODE && ghost.ghostText
+                    ? ghost.ghostText
+                    : 'Ask about your taste…'
+                }
                 className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2.5 text-sm text-zinc-100
                   placeholder:text-zinc-500 resize-none focus:outline-none focus:border-violet-500
                   disabled:opacity-50 transition-colors"
@@ -342,7 +373,7 @@ export function OldChat({ onGoToPlaylist }) {
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={!input.trim()}
+                  disabled={ghostLocked || !(input.trim() || (DEMO_MODE && ghost.ghostText))}
                   className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 disabled:cursor-not-allowed
                     text-white rounded-xl px-4 py-2.5 text-sm font-medium transition-colors shrink-0"
                 >
@@ -351,8 +382,14 @@ export function OldChat({ onGoToPlaylist }) {
               )}
             </div>
             <div className="flex items-center justify-between mt-1.5">
-              <p className="text-xs text-zinc-600">Enter to send · Shift+Enter for new line</p>
-              {assistantCount > 0 && (
+              <p className="text-xs text-zinc-600">
+                {ghostLocked
+                  ? 'Self-hosted, this calls Claude live for any question.'
+                  : DEMO_MODE
+                  ? 'Tab to fill in · Enter to send'
+                  : 'Enter to send · Shift+Enter for new line'}
+              </p>
+              {!DEMO_MODE && assistantCount > 0 && (
                 <p className="text-xs text-zinc-600">
                   {assistantCount}/{RESPONSE_LIMIT}
                 </p>

@@ -3,6 +3,11 @@ import { useLocation } from 'react-router-dom';
 import { useUIStore } from '../../store/uiStore';
 import { useContextSnapshot } from '../../hooks/useContextSnapshot';
 import { useActionBus } from '../../hooks/useActionBus';
+import { useGhostScript } from '../../hooks/useGhostScript';
+import action_bus_script from '../../demo/fixtures/action_bus_script.js';
+
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+const GHOST_TURNS = DEMO_MODE ? action_bus_script : [];
 
 const PAGE_LABEL = {
     '/dashboard': 'Dashboard',
@@ -53,6 +58,9 @@ export function AnalyticsChat() {
     const bottomRef = useRef(null);
     const inputRef = useRef(null);
 
+    const ghost = useGhostScript(GHOST_TURNS);
+    const ghostLocked = DEMO_MODE && ghost.done;
+
     const { execute } = useActionBus({
         onToast: (msg) => {
             setToast(msg);
@@ -75,7 +83,8 @@ export function AnalyticsChat() {
         'Analytics';
 
     const sendText = async (text) => {
-        if (!text || loading) return;
+        if (!text || loading || ghostLocked) return;
+        const isScriptedTurn = DEMO_MODE && !ghost.done && text === ghost.ghostText;
         setInput('');
         setActionLog([]);
         setMessages((prev) => [...prev, { role: 'user', content: text }]);
@@ -114,12 +123,17 @@ export function AnalyticsChat() {
             ]);
         } finally {
             setLoading(false);
+            if (isScriptedTurn) ghost.advance();
         }
     };
 
-    const send = () => sendText(input.trim());
+    const send = () => {
+        const text = input.trim() || (DEMO_MODE && !ghost.done ? ghost.ghostText : '');
+        sendText(text);
+    };
 
     const handleKey = (e) => {
+        if (ghost.handleTabFill(e, input, setInput)) return;
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             send();
@@ -193,7 +207,18 @@ export function AnalyticsChat() {
 
                     {/* Messages */}
                     <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-                        {messages.length === 0 && (
+                        {messages.length === 0 && DEMO_MODE && (
+                            <div className="flex flex-col items-center justify-center h-full text-center gap-2 px-4">
+                                <p className="text-zinc-500 text-sm">
+                                    Ask about your listening history.
+                                </p>
+                                <p className="text-zinc-600 text-xs">
+                                    A scripted question is sitting in the input below — Tab to fill it in, Enter to send.
+                                </p>
+                            </div>
+                        )}
+
+                        {messages.length === 0 && !DEMO_MODE && (
                             <div className="flex flex-col items-center justify-center h-full text-center gap-3 px-4">
                                 <p className="text-zinc-500 text-sm">
                                     Ask about your listening history.
@@ -284,8 +309,14 @@ export function AnalyticsChat() {
                                 value={input}
                                 onChange={(e) => setInput(e.target.value)}
                                 onKeyDown={handleKey}
-                                disabled={loading}
-                                placeholder="Ask about your listening history…"
+                                disabled={loading || ghostLocked}
+                                placeholder={
+                                    ghostLocked
+                                        ? "End of scripted demo — free typing isn't wired up in this static build."
+                                        : DEMO_MODE && ghost.ghostText
+                                        ? ghost.ghostText
+                                        : 'Ask about your listening history…'
+                                }
                                 className="flex-1 bg-zinc-800 border border-zinc-700 rounded-xl px-3 py-2 text-sm text-zinc-100
                   placeholder:text-zinc-600 resize-none focus:outline-none focus:border-violet-500
                   disabled:opacity-50 transition-colors"
@@ -300,7 +331,7 @@ export function AnalyticsChat() {
                             ) : (
                                 <button
                                     onClick={send}
-                                    disabled={!input.trim()}
+                                    disabled={ghostLocked || !(input.trim() || (DEMO_MODE && ghost.ghostText))}
                                     className="bg-violet-600 hover:bg-violet-500 disabled:opacity-40 text-white
                     rounded-xl px-3 py-2 text-xs font-medium transition-colors shrink-0"
                                 >
@@ -309,7 +340,11 @@ export function AnalyticsChat() {
                             )}
                         </div>
                         <p className="text-[10px] text-zinc-700 mt-1">
-                            Enter to send · Shift+Enter for newline
+                            {ghostLocked
+                                ? 'Self-hosted, this calls Claude live for any question.'
+                                : DEMO_MODE
+                                ? 'Tab to fill in · Enter to send'
+                                : 'Enter to send · Shift+Enter for newline'}
                         </p>
                     </div>
                 </div>

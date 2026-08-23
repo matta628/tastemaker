@@ -12,6 +12,8 @@ import pipeline_fixture   from './fixtures/pipeline_status.json'
 import lyrics_fixture     from './fixtures/lyrics.json'
 import playlist_stream    from './fixtures/playlist_stream.js'
 import chat_stream        from './fixtures/chat_stream.js'
+import guitar_chat_script from './fixtures/guitar_chat_script.js'
+import action_bus_script  from './fixtures/action_bus_script.js'
 import analytics_fixture  from './fixtures/analytics.json'
 import { canonicalKey, parsePathAndQuery } from './analyticsKey.js'
 
@@ -292,6 +294,24 @@ function matchChatStub(prompt) {
 }
 
 // ---------------------------------------------------------------------------
+// Ghost-script conversations — useGhostScript (see hooks/useGhostScript.js)
+// walks the visitor through a fixed sequence of real, pre-authored turns per
+// chat surface. Matched by exact prompt text so either surface stays correct
+// no matter what order turns are replayed in (new chat, page refresh, ...).
+// Anything that doesn't match a scripted turn falls back to the existing
+// single-shot fixtures (chat_stream / CHAT_STUBS) below.
+// ---------------------------------------------------------------------------
+
+function matchGuitarScript(message) {
+  return guitar_chat_script.find((t) => t.user === message)?.stream ?? null
+}
+
+function matchActionBusScript(prompt) {
+  const turn = action_bus_script.find((t) => t.user === prompt)
+  return turn ? { response: turn.response, ui_actions: turn.ui_actions } : null
+}
+
+// ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
 
@@ -388,7 +408,7 @@ async function route(url, method, body) {
 
   // Agent — chat (SSE stream)
   if (path === '/agent/chat' && method === 'POST')
-    return makeSSEStream(chat_stream)
+    return makeSSEStream(matchGuitarScript(body?.message) ?? chat_stream)
 
   // Pipelines — status
   if (path === '/pipelines/status' && method === 'GET')
@@ -407,7 +427,7 @@ async function route(url, method, body) {
     return handleAnalytics(path)
 
   if (path === '/analytics/chat' && method === 'POST')
-    return json(matchChatStub(body?.prompt))
+    return json(matchActionBusScript(body?.prompt) ?? matchChatStub(body?.prompt))
 
   if ((path === '/analytics/entities/genre' || path === '/analytics/track/mood') && method === 'PATCH')
     return json({ ok: true }) // demo mode: edits aren't persisted

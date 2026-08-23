@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { AnalyticsChat } from './AnalyticsChat'
 import { useUIStore } from '../../store/uiStore'
+import { DemoBanner } from '../DemoBanner'
 
 const PAGES = [
   { path: '/dashboard',   label: 'Dashboard'   },
@@ -15,9 +16,10 @@ export function AnalyticsShell({ children }) {
 
   return (
     <div className="h-svh overflow-hidden bg-zinc-950 flex flex-col">
+      <DemoBanner />
       {/* Top nav */}
       <header className="shrink-0 flex items-center gap-4 px-6 py-3 border-b border-zinc-800 bg-zinc-950">
-        <Link to="/" className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm">
+        <Link to="/guitar" className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm">
           ← Guitar
         </Link>
         <span className="text-zinc-700">|</span>

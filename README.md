@@ -1,10 +1,22 @@
 # Tastemaker
 
+**Live demo:** https://matta628.github.io/tastemaker/ — a static snapshot
+of ~3 years of my real listening data. Chat/action-bus responses are
+pre-recorded in this build (see [Demo Mode](#demo-mode)); self-hosted on my
+Pi, they call Claude live.
+
 A personal taste graph and AI agent built on real behavioral data. Tastemaker ingests years of listening history, reading history, and guitar practice logs, pipelines everything into a columnar database, and puts an AI agent on top that reasons across all of it — surfacing cross-domain connections between music, books, and guitar, generating opinionated playlists, and powering a four-page analytics suite controllable entirely through natural language.
 
 Self-hosted on a Raspberry Pi 5. No cloud services except the Anthropic API.
 
 ---
+
+## Demo Mode
+
+The link above is a static build hosted on GitHub Pages — it has no backend at all. Two things make that work without it being mistaken for the live app:
+
+- **Real data, canned decisions.** The dashboard, Discover, Time Machine, and Deep Dive pages are all rendering ~3 years of my actual listening history, exported at build time. The one thing that's simulated is Claude's decision-making: chat replies and AI Action Bus responses are pre-scripted conversations, not a live model call. Everything downstream of that — navigation, chart filters, era comparisons — is the same real code the live app uses, just driven by a scripted `ui_actions` payload instead of a live one.
+- **Self-hosted, it's live.** Running on my own Raspberry Pi, both chat surfaces call Claude for real, per-message, against the same database. The demo banner at the top of the page always says which mode you're in.
 
 ## What It Does
 
