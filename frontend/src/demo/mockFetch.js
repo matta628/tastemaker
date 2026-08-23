@@ -12,6 +12,8 @@ import pipeline_fixture   from './fixtures/pipeline_status.json'
 import lyrics_fixture     from './fixtures/lyrics.json'
 import playlist_stream    from './fixtures/playlist_stream.js'
 import chat_stream        from './fixtures/chat_stream.js'
+import analytics_fixture  from './fixtures/analytics.json'
+import { canonicalKey, parsePathAndQuery } from './analyticsKey'
 
 // ---------------------------------------------------------------------------
 // In-memory state (resets on page refresh — intentional for demo)
@@ -63,6 +65,114 @@ function makeSSEStream(events) {
     }),
     { headers: { 'Content-Type': 'text/event-stream' } }
   )
+}
+
+// ---------------------------------------------------------------------------
+// Analytics — served from a pre-exported fixture lookup keyed by canonical
+// "path?query" strings (see scripts/export_demo_fixtures.py and
+// ./analyticsKey.js). Anything not in the export (a param combo outside the
+// ~10 hand-picked Deep Dive artists, an arbitrary custom date range, ...)
+// degrades gracefully to an empty result rather than a 404 — a real backend
+// would answer, this demo build just doesn't have that slice baked in.
+// ---------------------------------------------------------------------------
+
+function decodePathSegments(path) {
+  return path.split('/').map(decodeURIComponent).join('/')
+}
+
+function lookupAnalyticsFixture(rawPath) {
+  const { path, params } = parsePathAndQuery(decodePathSegments(rawPath))
+  return analytics_fixture[canonicalKey(path, params)]
+}
+
+function entitiesRows(entityType) {
+  return analytics_fixture[`/analytics/entities/${entityType}`]?.rows || []
+}
+
+function queryEntities(rows, params) {
+  const { sort_by = 'rank_all_time', sort_dir = 'asc', limit = 100, offset = 0, search, genre_filter } = params
+  let filtered = rows
+  if (search) {
+    const s = search.toLowerCase()
+    filtered = filtered.filter((r) =>
+      Object.values(r).some((v) => typeof v === 'string' && v.toLowerCase().includes(s))
+    )
+  }
+  if (genre_filter) {
+    const g = genre_filter.toLowerCase()
+    filtered = filtered.filter((r) => (r.genre || '').toLowerCase() === g)
+  }
+  const dir = sort_dir === 'desc' ? -1 : 1
+  const sorted = [...filtered].sort((a, b) => {
+    const av = a[sort_by]
+    const bv = b[sort_by]
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    if (av < bv) return -1 * dir
+    if (av > bv) return 1 * dir
+    return 0
+  })
+  const off = Number(offset) || 0
+  const lim = Number(limit) || 100
+  return { total: sorted.length, rows: sorted.slice(off, off + lim) }
+}
+
+function statsFromEntities(entityType, name, artist) {
+  const nameField = { artist: 'artist', album: 'album', track: 'track' }[entityType]
+  const rows = entitiesRows(`${entityType}s`)
+  return rows.find((r) =>
+    r[nameField]?.toLowerCase() === name.toLowerCase() &&
+    (!artist || entityType === 'artist' || r.artist?.toLowerCase() === artist.toLowerCase())
+  )
+}
+
+function demoSearch(q, limit) {
+  if (!q || q.length < 2) return []
+  const s = q.toLowerCase()
+  const results = [
+    ...entitiesRows('artists')
+      .filter((a) => a.artist.toLowerCase().includes(s))
+      .map((a) => ({ type: 'artist', name: a.artist, secondary: null, plays: a.total_plays })),
+    ...entitiesRows('albums')
+      .filter((a) => a.album.toLowerCase().includes(s) || a.artist.toLowerCase().includes(s))
+      .map((a) => ({ type: 'album', name: a.album, secondary: a.artist, plays: a.total_plays })),
+    ...entitiesRows('tracks')
+      .filter((t) => t.track.toLowerCase().includes(s) || t.artist.toLowerCase().includes(s))
+      .map((t) => ({ type: 'track', name: t.track, secondary: t.artist, plays: t.total_plays })),
+  ]
+  results.sort((a, b) => (b.plays || 0) - (a.plays || 0))
+  return results.slice(0, Number(limit) || 20)
+}
+
+function handleAnalytics(rawPath) {
+  const { path, params } = parsePathAndQuery(decodePathSegments(rawPath))
+
+  if (path === '/analytics/entities/artists') return json(queryEntities(entitiesRows('artists'), params))
+  if (path === '/analytics/entities/albums') return json(queryEntities(entitiesRows('albums'), params))
+  if (path === '/analytics/entities/tracks') return json(queryEntities(entitiesRows('tracks'), params))
+
+  if (path === '/analytics/search') return json(demoSearch(params.q, params.limit))
+
+  let m
+  if ((m = path.match(/^\/analytics\/artist\/([^/]+)\/stats$/))) {
+    const row = statsFromEntities('artist', m[1])
+    return row ? json(row) : json({ detail: 'Artist not found in stats' }, 404)
+  }
+  if ((m = path.match(/^\/analytics\/album\/([^/]+)\/stats$/))) {
+    const row = statsFromEntities('album', m[1], params.artist)
+    return row ? json(row) : json({ detail: 'Album not found in stats' }, 404)
+  }
+  if ((m = path.match(/^\/analytics\/track\/([^/]+)\/stats$/))) {
+    const row = statsFromEntities('track', m[1], params.artist)
+    return row ? json(row) : json({ detail: 'Track not found in stats' }, 404)
+  }
+
+  const found = lookupAnalyticsFixture(rawPath)
+  if (found !== undefined) return json(found)
+
+  console.warn('[demo] no fixture for analytics path, returning empty:', rawPath)
+  return json([])
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +285,13 @@ async function route(url, method, body) {
   // Taste / lyrics
   if ((path === '/taste/lyrics-snippets' || path.startsWith('/taste/top-tracks')) && method === 'GET')
     return json(lyrics_fixture)
+
+  // Analytics
+  if (path.startsWith('/analytics/') && method === 'GET')
+    return handleAnalytics(path)
+
+  if ((path === '/analytics/entities/genre' || path === '/analytics/track/mood') && method === 'PATCH')
+    return json({ ok: true }) // demo mode: edits aren't persisted
 
   // Fallback
   console.warn('[demo] unhandled:', method, path)

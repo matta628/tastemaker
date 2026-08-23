@@ -1,0 +1,183 @@
+"""
+One-off export of real analytics data into a single JSON lookup fixture for
+the static GitHub Pages demo build (see PLAN.md §2).
+
+Reuses the real query functions in backend/analytics.py directly (no SQL
+reimplementation) so fixtures match real endpoint shapes exactly.
+
+The frontend's date pickers (Dashboard/DeepDive period buttons, Time
+Machine era presets) always compute from_date/to_date either relative to
+"now" (e.g. "last 90 days") or as exact calendar-year eras (e.g.
+2021-01-01..2022-01-01) — never arbitrary literal dates. So instead of
+baking one fixture per literal date pair (which would go stale the day
+after export), each fixture is keyed by which *bucket* the date range
+falls into ("rel:90d", "era:2021", ...). frontend/src/demo/mockFetch.js
+buckets each live request's from_date/to_date the same way and looks the
+result up — see canonicalKey()/bucketize() there, which this script's
+ckey()/REL_DAYS/ERA_YEARS must stay in sync with.
+
+Run from repo root:
+    PYTHONPATH=. .venv/bin/python -m scripts.export_demo_fixtures
+"""
+import json
+import sys
+from datetime import date, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from backend.analytics import (  # noqa: E402
+    activity, genre_breakdown, mood_breakdown, heatmap, day_of_week,
+    new_artists, listening_streak, top_entities, entities_artists,
+    entities_albums, entities_tracks, artist_history, artist_stats_detail,
+    artist_albums, artist_similar, artist_timeline, artist_sessions,
+    genre_tag_tracks, mood_tag_tracks, available_moods,
+)
+
+OUT_PATH = Path(__file__).resolve().parent.parent / "frontend/src/demo/fixtures/analytics.json"
+ENTITY_EXPORT_LIMIT = 300
+NUM_DEEP_DIVE_ARTISTS = 10
+
+REL_DAYS = {
+    "7d": 7, "30d": 30, "90d": 90, "180d": 180, "1y": 365,
+    "2y": 730, "3y": 1095, "4y": 1460, "5y": 1825,
+}
+RELATIVE_BUCKETS = list(REL_DAYS) + ["all"]
+GRAN_FOR_BUCKET = {
+    "7d": "day", "30d": "day", "90d": "week", "180d": "week", "1y": "week",
+    "2y": "month", "3y": "month", "4y": "month", "5y": "month", "all": "month",
+}
+ERA_YEARS = list(range(2019, 2026))
+TODAY = date.today()
+
+fixtures = {}
+
+
+def rel_range(bucket):
+    if bucket == "all":
+        return None, None
+    d = REL_DAYS[bucket]
+    return (TODAY - timedelta(days=d)).isoformat(), TODAY.isoformat()
+
+
+def era_range(year):
+    return f"{year}-01-01", f"{year + 1}-01-01"
+
+
+def ckey(path, params=None):
+    """Canonical cache key — must exactly match mockFetch.js's canonicalKey()."""
+    params = params or {}
+    parts = [f"{k}={v}" for k, v in sorted(params.items()) if v is not None]
+    return path + ("?" + "&".join(parts) if parts else "")
+
+
+def put(fn, path, call_params=None, bucket=None, year=None, **fn_extra_kwargs):
+    """Call fn with the resolved date range, store result under the bucketed key."""
+    call_params = call_params or {}
+    from_date, to_date = era_range(year) if year is not None else rel_range(bucket)
+
+    kwargs = dict(call_params)
+    kwargs.update(fn_extra_kwargs)
+    if from_date is not None:
+        kwargs["from_date"] = from_date
+    if to_date is not None:
+        kwargs["to_date"] = to_date
+
+    result = fn(**kwargs)
+
+    key_params = dict(call_params)
+    if year is not None:
+        key_params["_range"] = f"era:{year}"
+    elif bucket is not None and bucket != "all":
+        key_params["_range"] = f"rel:{bucket}"
+    fixtures[ckey(path, key_params)] = result
+
+
+def main():
+    print(f"[export] Exporting demo fixtures as of {TODAY.isoformat()}...")
+
+    # -- Dashboard: relative period buckets ---------------------------------
+    for b in RELATIVE_BUCKETS:
+        put(activity, "/analytics/activity", {"granularity": GRAN_FOR_BUCKET[b]}, bucket=b)
+        put(genre_breakdown, "/analytics/genre-breakdown", {"limit": 12}, bucket=b)
+        put(mood_breakdown, "/analytics/mood-breakdown", {}, bucket=b)
+        put(heatmap, "/analytics/heatmap", {}, bucket=b)
+        put(day_of_week, "/analytics/day-of-week", {}, bucket=b)
+        put(new_artists, "/analytics/new-artists", {"granularity": "month"}, bucket=b)
+        put(listening_streak, "/analytics/listening-streak", {}, bucket=b)
+        if b != "all":
+            for et in ("artist", "album", "track"):
+                put(top_entities, "/analytics/top-entities",
+                    {"entity_type": et, "limit": 15}, bucket=b)
+    # DriftAnalysis's "current" (last-30-days) side uses limit=10, not 12
+    put(genre_breakdown, "/analytics/genre-breakdown", {"limit": 10}, bucket="30d")
+    print(f"[export] Dashboard relative-period fixtures: {len(fixtures)}")
+
+    # -- Time Machine: calendar-year era buckets -----------------------------
+    n_before_era = len(fixtures)
+    for y in ERA_YEARS:
+        put(activity, "/analytics/activity", {"granularity": "month"}, year=y)
+        put(genre_breakdown, "/analytics/genre-breakdown", {"limit": 12}, year=y)
+        put(day_of_week, "/analytics/day-of-week", {}, year=y)
+        put(heatmap, "/analytics/heatmap", {}, year=y)
+        put(listening_streak, "/analytics/listening-streak", {}, year=y)
+        for et in ("artist", "album", "track"):
+            put(top_entities, "/analytics/top-entities",
+                {"entity_type": et, "limit": 15}, year=y)
+        # EraStory panel
+        put(top_entities, "/analytics/top-entities",
+            {"entity_type": "artist", "limit": 5}, year=y)
+        put(genre_breakdown, "/analytics/genre-breakdown", {"limit": 5}, year=y)
+        # DriftAnalysis era side
+        put(genre_breakdown, "/analytics/genre-breakdown", {"limit": 10}, year=y)
+    print(f"[export] Time Machine era fixtures: {len(fixtures) - n_before_era}")
+
+    # -- Explore / Discover entity tables (all-time, full arrays) ------------
+    fixtures[ckey("/analytics/entities/artists")] = entities_artists(
+        sort_by="rank_all_time", sort_dir="asc", limit=ENTITY_EXPORT_LIMIT)
+    fixtures[ckey("/analytics/entities/albums")] = entities_albums(
+        sort_by="rank_all_time", sort_dir="asc", limit=ENTITY_EXPORT_LIMIT)
+    fixtures[ckey("/analytics/entities/tracks")] = entities_tracks(
+        sort_by="rank_all_time", sort_dir="asc", limit=ENTITY_EXPORT_LIMIT)
+    fixtures[ckey("/analytics/moods")] = available_moods()
+    print("[export] Entity tables + moods list exported")
+
+    top_artist_names = [
+        r["artist"] for r in
+        fixtures[ckey("/analytics/entities/artists")]["rows"][:NUM_DEEP_DIVE_ARTISTS]
+    ]
+    print(f"[export] Deep Dive artists: {top_artist_names}")
+
+    # -- Deep Dive: full panel set for hand-picked top artists ---------------
+    for name in top_artist_names:
+        for period in ("1y", "all"):
+            put(artist_history, f"/analytics/artist/{name}/history",
+                {"granularity": GRAN_FOR_BUCKET[period], "metric": "plays"}, bucket=period,
+                name=name)
+            put(artist_albums, f"/analytics/artist/{name}/albums", {}, bucket=period, name=name)
+        fixtures[ckey(f"/analytics/artist/{name}/stats")] = artist_stats_detail(name)
+        fixtures[ckey(f"/analytics/artist/{name}/similar")] = artist_similar(name)
+        fixtures[ckey(f"/analytics/artist/{name}/timeline")] = artist_timeline(name)
+        fixtures[ckey(f"/analytics/artist/{name}/sessions")] = artist_sessions(name)
+    print(f"[export] Deep Dive fixtures done, total keys: {len(fixtures)}")
+
+    # -- Genre / mood tag drill-down tables (top tags only) ------------------
+    top_genre_tags = [r["tag"] for r in genre_breakdown(limit=8)]
+    top_mood_tags = [r["mood"] for r in mood_breakdown(limit=8)]
+    for tag in top_genre_tags:
+        fixtures[ckey(f"/analytics/genre/{tag}/tracks", {"limit": 50})] = \
+            genre_tag_tracks(tag, limit=50)
+    for tag in top_mood_tags:
+        fixtures[ckey(f"/analytics/mood/{tag}/tracks", {"limit": 50})] = \
+            mood_tag_tracks(tag, limit=50)
+    print(f"[export] Tag drill-down fixtures for {len(top_genre_tags)} genres, "
+          f"{len(top_mood_tags)} moods")
+
+    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OUT_PATH.write_text(json.dumps(fixtures, indent=None, separators=(",", ":")))
+    size_kb = OUT_PATH.stat().st_size / 1024
+    print(f"[export] Wrote {len(fixtures)} fixture entries ({size_kb:.0f} KB) to {OUT_PATH}")
+
+
+if __name__ == "__main__":
+    main()
