@@ -174,7 +174,7 @@ def main():
           f"{len(top_mood_tags)} moods")
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUT_PATH.write_text(json.dumps(fixtures, indent=None, separators=(",", ":")))
+    OUT_PATH.write_text(json.dumps(fixtures, indent=None, separators=(",", ":"), default=str))
     size_kb = OUT_PATH.stat().st_size / 1024
     print(f"[export] Wrote {len(fixtures)} fixture entries ({size_kb:.0f} KB) to {OUT_PATH}")
 

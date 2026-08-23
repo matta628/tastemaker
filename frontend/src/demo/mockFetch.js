@@ -13,7 +13,7 @@ import lyrics_fixture     from './fixtures/lyrics.json'
 import playlist_stream    from './fixtures/playlist_stream.js'
 import chat_stream        from './fixtures/chat_stream.js'
 import analytics_fixture  from './fixtures/analytics.json'
-import { canonicalKey, parsePathAndQuery } from './analyticsKey'
+import { canonicalKey, parsePathAndQuery } from './analyticsKey.js'
 
 // ---------------------------------------------------------------------------
 // In-memory state (resets on page refresh — intentional for demo)
@@ -176,6 +176,122 @@ function handleAnalytics(rawPath) {
 }
 
 // ---------------------------------------------------------------------------
+// AI Action Bus — ported verbatim from backend/main.py's ANALYTICS_CHAT_STUBS
+// dev-stub table (keyword match -> canned {response, ui_actions}). Live,
+// self-hosted, this same table backs real Claude calls in dev; here it's
+// the only version that will ever run, since this build has no backend.
+// ---------------------------------------------------------------------------
+
+const CHAT_STUBS = [
+  [['summer', '2021'], {
+    response: '[STUB] Navigating to Time Machine and setting era to Summer 2021 (June–August).',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/timemachine' } },
+      { type: 'set_era_preset', payload: { preset: '2021', from: '2021-06-01', to: '2021-08-31' } },
+      { type: 'highlight_chart', payload: { chart_id: 'timemachine_chart' } },
+      { type: 'show_toast', payload: { message: 'Time Machine → Summer 2021' } },
+    ],
+  }],
+  [['radiohead', 'year'], {
+    response: '[STUB] Opening Radiohead deep dive with all-time yearly granularity.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/explore/artist/Radiohead' } },
+      { type: 'set_time_range', payload: { period: 'all' } },
+      { type: 'highlight_chart', payload: { chart_id: 'deepdive_chart' } },
+      { type: 'show_toast', payload: { message: 'Deep Dive → Radiohead (all time)' } },
+    ],
+  }],
+  [['compare', 'lana', 'mitski'], {
+    response: '[STUB] Opening Lana Del Rey deep dive, switching to all-time, and comparing with Mitski.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/explore/artist/Lana Del Rey' } },
+      { type: 'set_time_range', payload: { period: 'all' } },
+      { type: 'open_panel', payload: { panel: 'Compare' } },
+      { type: 'add_compare_entity', payload: { type: 'artist', id: 'Mitski' } },
+      { type: 'highlight_chart', payload: { chart_id: 'deepdive_chart' } },
+      { type: 'show_toast', payload: { message: 'Compare: Lana Del Rey vs Mitski' } },
+    ],
+  }],
+  [["haven't", 'month'], {
+    response: '[STUB] Filtering Discover to artists with 50+ total plays but not heard in 6+ months.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/discover' } },
+      { type: 'set_entity_type', payload: { entity_type: 'artist' } },
+      { type: 'apply_filter', payload: { sort_by: 'total_plays', sort_dir: 'desc' } },
+      { type: 'highlight_chart', payload: { chart_id: 'discover_table' } },
+      { type: 'show_toast', payload: { message: 'Discover → dormant artists filter' } },
+    ],
+  }],
+  [['scatter'], {
+    response: '[STUB] Scatter plot of top 50 artists by total plays vs days since last heard.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/discover' } },
+      { type: 'set_entity_type', payload: { entity_type: 'artist' } },
+      { type: 'set_top_n', payload: { n: 50 } },
+      { type: 'set_viz_type', payload: { viz_type: 'scatter' } },
+      { type: 'set_viz_axes', payload: { x_metric: 'total_plays', y_metric: 'days_since_last_heard' } },
+      { type: 'highlight_chart', payload: { chart_id: 'discover_viz' } },
+      { type: 'show_toast', payload: { message: 'Discover → scatter: plays vs recency' } },
+    ],
+  }],
+  [['top artist'], {
+    response: '[STUB] Showing top artists over the last year on the Dashboard.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/dashboard' } },
+      { type: 'set_time_range', payload: { period: '1y' } },
+      { type: 'highlight_chart', payload: { chart_id: 'top_entities' } },
+      { type: 'show_toast', payload: { message: 'Dashboard → top artists (1y)' } },
+    ],
+  }],
+  [['genre'], {
+    response: '[STUB] Opening the Dashboard to show your genre breakdown chart.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/dashboard' } },
+      { type: 'highlight_chart', payload: { chart_id: 'genre_mood' } },
+      { type: 'show_toast', payload: { message: 'Dashboard → genre breakdown' } },
+    ],
+  }],
+  [['deep dive', 'nirvana'], {
+    response: '[STUB] Opening Nirvana deep dive.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/explore/artist/Nirvana' } },
+      { type: 'highlight_chart', payload: { chart_id: 'deepdive_chart' } },
+      { type: 'show_toast', payload: { message: 'Deep Dive → Nirvana' } },
+    ],
+  }],
+  [['compare', 'year'], {
+    response: '[STUB] Navigating to Time Machine and enabling compare mode for this year vs last year.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/timemachine' } },
+      { type: 'set_era_preset', payload: { preset: '2024', from: '2024-01-01', to: '2024-12-31' } },
+      { type: 'highlight_chart', payload: { chart_id: 'timemachine_chart' } },
+      { type: 'show_toast', payload: { message: 'Time Machine → 2024 vs 2025 compare' } },
+    ],
+  }],
+  [['discover'], {
+    response: '[STUB] Opening the Discover page with all artists sorted by total plays.',
+    ui_actions: [
+      { type: 'navigate', payload: { path: '/discover' } },
+      { type: 'set_entity_type', payload: { entity_type: 'artist' } },
+      { type: 'apply_filter', payload: { sort_by: 'total_plays', sort_dir: 'desc' } },
+      { type: 'highlight_chart', payload: { chart_id: 'discover_table' } },
+      { type: 'show_toast', payload: { message: 'Discover → all artists' } },
+    ],
+  }],
+]
+
+function matchChatStub(prompt) {
+  const p = (prompt || '').toLowerCase()
+  for (const [keywords, response] of CHAT_STUBS) {
+    if (keywords.every((k) => p.includes(k))) return response
+  }
+  return {
+    response: `Demo mode: no scripted response matches "${prompt}". Try one of the suggested prompts — self-hosted, this calls Claude live for any question.`,
+    ui_actions: [],
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
 
@@ -289,6 +405,9 @@ async function route(url, method, body) {
   // Analytics
   if (path.startsWith('/analytics/') && method === 'GET')
     return handleAnalytics(path)
+
+  if (path === '/analytics/chat' && method === 'POST')
+    return json(matchChatStub(body?.prompt))
 
   if ((path === '/analytics/entities/genre' || path === '/analytics/track/mood') && method === 'PATCH')
     return json({ ok: true }) // demo mode: edits aren't persisted
