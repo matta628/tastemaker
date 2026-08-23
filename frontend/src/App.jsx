@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { api } from './api'
 import { SongLibrary } from './components/SongLibrary'
 import { SongForm } from './components/SongForm'
@@ -260,9 +260,11 @@ export default function App() {
     <BrowserRouter basename={import.meta.env.VITE_BASE_PATH || '/'}>
       <Routes>
         <Route path="/" element={
-          <ChatProvider>
-            <GuitarApp />
-          </ChatProvider>
+          import.meta.env.VITE_DEMO_MODE === 'true'
+            ? <Navigate to="/dashboard" replace />
+            : <ChatProvider>
+                <GuitarApp />
+              </ChatProvider>
         } />
         <Route path="/dashboard"          element={<Dashboard />} />
         <Route path="/explore"            element={<Explore />} />
