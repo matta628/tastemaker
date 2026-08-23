@@ -1,5 +1,6 @@
 venv/
 .env.secret
+*~
 *.db
 *.wal
 __pycache__/
